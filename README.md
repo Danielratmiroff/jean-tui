@@ -33,6 +33,28 @@ go build -o gcool
 sudo mv gcool /usr/local/bin/
 ```
 
+## Platform Support
+
+### Supported Platforms
+
+- **Linux** ✅ Full support
+- **macOS** ✅ Full support
+- **Windows** ⚠️ WSL2 required (see below)
+
+### Windows Users
+
+gcool requires **WSL2 (Windows Subsystem for Linux 2)** to run on Windows because it depends on:
+- **tmux** - Terminal multiplexer (Unix/Linux only)
+- **bash/zsh/fish** - POSIX shells (not available on native Windows)
+
+**To use gcool on Windows:**
+
+1. Install WSL2: https://docs.microsoft.com/en-us/windows/wsl/install
+2. Inside WSL2, install gcool normally (see Installation section below)
+3. Use gcool from within your WSL2 terminal
+
+If you try to run gcool on native Windows (not WSL2), you'll see an error message with installation instructions for WSL2.
+
 ## Prerequisites
 
 - **tmux**: Required for persistent session management

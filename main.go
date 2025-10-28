@@ -4,6 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/coollabsio/gcool/install"
@@ -13,6 +18,35 @@ import (
 const version = "0.1.0"
 
 func main() {
+	// Check for unsupported Windows (native, not WSL2)
+	if runtime.GOOS == "windows" {
+		if !isRunningInWSL() {
+			fmt.Fprintf(os.Stderr, "Error: gcool requires WSL2 on Windows\n\n")
+			fmt.Fprintf(os.Stderr, "gcool depends on tmux and bash/zsh/fish, which are not available on native Windows.\n")
+			fmt.Fprintf(os.Stderr, "Please install and use WSL2 (Windows Subsystem for Linux 2) to run gcool.\n\n")
+			fmt.Fprintf(os.Stderr, "For installation instructions, see:\n")
+			fmt.Fprintf(os.Stderr, "  https://docs.microsoft.com/en-us/windows/wsl/install\n")
+			os.Exit(1)
+		}
+	}
+
+	// Auto-initialize shell integration if not already done
+	// Skip this check for init, version, help, and if already attempted (prevent infinite loop)
+	shouldCheckInit := true
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init", "version", "help":
+			shouldCheckInit = false
+		}
+	}
+
+	if shouldCheckInit && os.Getenv("GCOOL_INIT_ATTEMPTED") == "" {
+		if err := ensureShellIntegration(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Could not auto-initialize shell integration: %v\n", err)
+			fmt.Fprintf(os.Stderr, "You can run 'gcool init' manually to set up shell integration.\n")
+		}
+	}
+
 	// Check if the first argument is a subcommand
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -90,6 +124,89 @@ func main() {
 	}
 }
 
+// ensureShellIntegration checks if shell integration is installed and active.
+// If not installed, it installs it, sources the RC file, and re-executes gcool.
+// Returns nil if wrapper is already active, otherwise performs init and re-exec.
+func ensureShellIntegration() error {
+	// Check if wrapper is already active
+	if os.Getenv("GCOOL_SWITCH_FILE") != "" {
+		return nil // Wrapper is active, no need to init
+	}
+
+	// Set flag to prevent infinite loop
+	os.Setenv("GCOOL_INIT_ATTEMPTED", "1")
+
+	// Create detector
+	detector, err := install.NewDetector()
+	if err != nil {
+		return fmt.Errorf("failed to create detector: %w", err)
+	}
+
+	// Check if already installed
+	if detector.IsInstalled() {
+		// Already installed, just source it and re-exec
+		fmt.Fprintf(os.Stderr, "✓ Activating shell integration...\n")
+		if err := sourceAndReexec(detector); err != nil {
+			return fmt.Errorf("failed to source and re-execute: %w", err)
+		}
+		return nil
+	}
+
+	// Not installed yet, install it
+	fmt.Fprintf(os.Stderr, "Setting up shell integration...\n")
+	if err := detector.Install(false); err != nil {
+		return fmt.Errorf("failed to install: %w", err)
+	}
+
+	// Now source the RC file and re-execute gcool in the same shell session
+	if err := sourceAndReexec(detector); err != nil {
+		return fmt.Errorf("failed to source and re-execute: %w", err)
+	}
+
+	return nil
+}
+
+// sourceAndReexec sources the RC file and re-executes gcool with the wrapper active.
+// It uses shell tricks to source the RC file and then call gcool again.
+func sourceAndReexec(detector *install.Detector) error {
+	// Get the shell command to use
+	shellPath := os.Getenv("SHELL")
+	if shellPath == "" {
+		shellPath = "/bin/bash"
+	}
+	shellName := filepath.Base(shellPath)
+
+	// Build the command that sources the RC file and re-executes gcool
+	// For both bash/zsh and fish, we source the RC file and then re-execute gcool
+	// This ensures GCOOL_SWITCH_FILE will be set (by the wrapper function in RC file)
+	var sourceCmd string
+	if shellName == "fish" {
+		// Fish uses different syntax
+		sourceCmd = fmt.Sprintf("source %s; %s", detector.RCFile, strings.Join(os.Args, " "))
+	} else {
+		// For bash/zsh
+		sourceCmd = fmt.Sprintf("source %s; %s", detector.RCFile, strings.Join(os.Args, " "))
+	}
+
+	// Create command to execute shell with source and gcool re-exec
+	cmd := exec.Command(shellPath, "-c", sourceCmd)
+
+	// Copy environment variables but ensure GCOOL_INIT_ATTEMPTED is still set
+	cmd.Env = os.Environ()
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// Use syscall.Exec to replace the current process
+	// This way the new shell becomes the foreground process
+	execErr := syscall.Exec(shellPath, []string{shellName, "-c", sourceCmd}, cmd.Env)
+	if execErr != nil {
+		return fmt.Errorf("failed to execute shell: %w", execErr)
+	}
+
+	return nil
+}
+
 func handleInit() {
 	// Parse init subcommand flags
 	initCmd := flag.NewFlagSet("init", flag.ExitOnError)
@@ -146,13 +263,13 @@ func handleInit() {
 func getRCFileForShell(shell install.Shell, homeDir string) string {
 	switch shell {
 	case install.Zsh:
-		return homeDir + "/.zshrc"
+		return filepath.Join(homeDir, ".zshrc")
 	case install.Fish:
-		return homeDir + "/.config/fish/config.fish"
+		return filepath.Join(homeDir, ".config", "fish", "config.fish")
 	case install.Bash:
 		fallthrough
 	default:
-		return homeDir + "/.bashrc"
+		return filepath.Join(homeDir, ".bashrc")
 	}
 }
 
@@ -236,5 +353,41 @@ For more information, visit: https://github.com/coollabsio/gcool
 `, version)
 }
 
-// This is a wrapper to make GetRCFile accessible from main package
-// The actual implementation is in install/install.go
+// isRunningInWSL checks if the application is running inside WSL (Windows Subsystem for Linux)
+// It checks for the presence of /proc/version which contains "microsoft" on WSL systems
+func isRunningInWSL() bool {
+	content, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	// Check if the /proc/version contains "microsoft" or "wsl" (case-insensitive indicators of WSL)
+	versionStr := string(content)
+	return contains(versionStr, "microsoft") || contains(versionStr, "wsl")
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		match := true
+		for j := 0; j < len(substr); j++ {
+			c1 := toUpper(s[i+j])
+			c2 := toUpper(substr[j])
+			if c1 != c2 {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+// toUpper converts a byte to uppercase
+func toUpper(c byte) byte {
+	if c >= 'a' && c <= 'z' {
+		return c - 32
+	}
+	return c
+}

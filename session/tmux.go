@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -159,7 +160,7 @@ func (m *Manager) HasGcoolTmuxConfig() (bool, error) {
 		return false, err
 	}
 
-	tmuxConfPath := homeDir + "/.tmux.conf"
+	tmuxConfPath := filepath.Join(homeDir, ".tmux.conf")
 	content, err := os.ReadFile(tmuxConfPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -178,7 +179,7 @@ func (m *Manager) AddGcoolTmuxConfig() error {
 		return err
 	}
 
-	tmuxConfPath := homeDir + "/.tmux.conf"
+	tmuxConfPath := filepath.Join(homeDir, ".tmux.conf")
 
 	// Check if config already exists
 	hasConfig, err := m.HasGcoolTmuxConfig()
@@ -214,7 +215,7 @@ func (m *Manager) RemoveGcoolTmuxConfig() error {
 		return err
 	}
 
-	tmuxConfPath := homeDir + "/.tmux.conf"
+	tmuxConfPath := filepath.Join(homeDir, ".tmux.conf")
 
 	content, err := os.ReadFile(tmuxConfPath)
 	if err != nil {
