@@ -139,7 +139,7 @@ func NewModel(repoPath string, autoClaude bool) Model {
 
 // Init initializes the model
 func (m Model) Init() tea.Cmd {
-	m.activityCheckInterval = 2 * time.Second
+	m.activityCheckInterval = 1 * time.Second
 	m.lastActivityCheck = time.Now()
 	return tea.Batch(
 		m.loadWorktrees,
