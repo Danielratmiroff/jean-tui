@@ -6,12 +6,28 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/coollabsio/gcool/install"
 	"github.com/coollabsio/gcool/tui"
 )
 
 const version = "0.1.0"
 
 func main() {
+	// Check if the first argument is a subcommand
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init":
+			handleInit()
+			return
+		case "version":
+			fmt.Printf("gcool version %s\n", version)
+			os.Exit(0)
+		case "help":
+			printHelp()
+			os.Exit(0)
+		}
+	}
+
 	// Parse flags
 	pathFlag := flag.String("path", ".", "Path to git repository (default: current directory)")
 	noClaudeFlag := flag.Bool("no-claude", false, "Don't auto-start Claude CLI in tmux session")
@@ -74,19 +90,99 @@ func main() {
 	}
 }
 
-func printHelp() {
-	fmt.Printf(`gcool - Git Worktree TUI Manager v%s
+func handleInit() {
+	// Parse init subcommand flags
+	initCmd := flag.NewFlagSet("init", flag.ExitOnError)
+	updateFlag := initCmd.Bool("update", false, "Update existing gcool integration")
+	removeFlag := initCmd.Bool("remove", false, "Remove gcool integration")
+	dryRunFlag := initCmd.Bool("dry-run", false, "Show what would be done without making changes")
+	shellFlag := initCmd.String("shell", "", "Specify shell (bash, zsh, fish). Auto-detected if not specified")
 
-A terminal user interface for managing Git worktrees.
+	initCmd.Parse(os.Args[2:])
+
+	detector, err := install.NewDetector()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Override shell if specified
+	if *shellFlag != "" {
+		switch *shellFlag {
+		case "bash":
+			detector.Shell = install.Bash
+			detector.RCFile = install.GetRCFileForShell(install.Bash, detector.HomeDir)
+		case "zsh":
+			detector.Shell = install.Zsh
+			detector.RCFile = install.GetRCFileForShell(install.Zsh, detector.HomeDir)
+		case "fish":
+			detector.Shell = install.Fish
+			detector.RCFile = install.GetRCFileForShell(install.Fish, detector.HomeDir)
+		default:
+			fmt.Fprintf(os.Stderr, "Error: unknown shell '%s'\n", *shellFlag)
+			os.Exit(1)
+		}
+	}
+
+	fmt.Printf("Detected shell: %s\n", detector.Shell)
+	fmt.Printf("RC file: %s\n", detector.RCFile)
+
+	var err2 error
+	if *removeFlag {
+		err2 = detector.Remove(*dryRunFlag)
+	} else if *updateFlag {
+		err2 = detector.Update(*dryRunFlag)
+	} else {
+		err2 = detector.Install(*dryRunFlag)
+	}
+
+	if err2 != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err2)
+		os.Exit(1)
+	}
+}
+
+// GetRCFileForShell is exported from install package wrapper
+func getRCFileForShell(shell install.Shell, homeDir string) string {
+	switch shell {
+	case install.Zsh:
+		return homeDir + "/.zshrc"
+	case install.Fish:
+		return homeDir + "/.config/fish/config.fish"
+	case install.Bash:
+		fallthrough
+	default:
+		return homeDir + "/.bashrc"
+	}
+}
+
+func printHelp() {
+	fmt.Printf(`gcool - A Cool TUI for Git Worktrees & Running CLI-Based AI Assistants Simultaneously v%s
+
+A beautiful terminal user interface for managing Git worktrees with integrated tmux
+session management, letting you run multiple Claude CLI sessions across different
+branches effortlessly.
 
 USAGE:
     gcool [OPTIONS]
+    gcool init [FLAGS]
 
-OPTIONS:
+COMMANDS:
+    init            Install or manage gcool shell integration
+    help            Show this help message
+    version         Print version and exit
+
+MAIN OPTIONS:
     -path <path>    Path to git repository (default: current directory)
     -no-claude      Don't auto-start Claude CLI in tmux session
-    -version        Print version and exit
     -help           Show this help message
+    -version        Print version and exit
+
+INIT COMMAND FLAGS:
+    -update         Update existing gcool integration
+    -remove         Remove gcool integration
+    -dry-run        Show what would be done without making changes
+    -shell <shell>  Specify shell (bash, zsh, fish). Auto-detected if not specified
 
 KEYBINDINGS:
     Navigation:
@@ -106,26 +202,19 @@ KEYBINDINGS:
         Enter       Confirm action
         Esc         Cancel/close modal
 
-SHELL INTEGRATION:
-    For directory switching to work, you need to wrap gwt in a shell function.
-    Add this to your shell rc file (~/.bashrc, ~/.zshrc, etc.):
+SHELL INTEGRATION SETUP:
+    One-time setup to enable directory switching:
 
-    Bash/Zsh:
-        gcool() {
-            local output
-            output=$(command gcool "$@")
-            if [ -n "$output" ]; then
-                cd "$output" || return
-            fi
-        }
+        gcool init
 
-    Fish:
-        function gcool
-            set output (command gcool $argv)
-            if test -n "$output"
-                cd $output
-            end
-        end
+    This will auto-detect your shell and install the necessary wrapper.
+    After installation, restart your terminal or run: source ~/.bashrc (or ~/.zshrc, etc.)
+
+    To update an existing installation:
+        gcool init --update
+
+    To remove the integration:
+        gcool init --remove
 
 EXAMPLES:
     # Run in current directory
@@ -134,6 +223,18 @@ EXAMPLES:
     # Run for a specific repository
     gcool -path /path/to/repo
 
+    # Set up shell integration (one-time)
+    gcool init
+
+    # Update shell integration
+    gcool init --update
+
+    # Remove shell integration
+    gcool init --remove
+
 For more information, visit: https://github.com/coollabsio/gcool
 `, version)
 }
+
+// This is a wrapper to make GetRCFile accessible from main package
+// The actual implementation is in install/install.go

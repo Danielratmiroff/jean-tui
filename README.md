@@ -1,6 +1,6 @@
-# gcool - Git Worktree TUI Manager
+# gcool - A Cool TUI for Git Worktrees & Running CLI-Based AI Assistants Simultaneously
 
-A beautiful terminal user interface for managing Git worktrees, built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+A beautiful terminal user interface for managing Git worktrees with integrated tmux session management, built with [Bubble Tea](https://github.com/charmbracelet/bubbletea). Run multiple Claude CLI sessions across different branches effortlessly.
 
 ## Features
 
@@ -54,25 +54,52 @@ The shell wrapper enables:
 2. Claude CLI auto-start in each worktree
 3. Session persistence (detach with `Ctrl+B D`, return anytime)
 
-### Bash / Zsh
+### Quick Setup (One Command)
 
-Source the provided wrapper in your `~/.bashrc` or `~/.zshrc`:
+Simply run:
 
 ```bash
-source /path/to/gcool/shell/gcool-wrapper.sh
+gcool init
 ```
 
-Or copy the function manually (see `shell/gcool-wrapper.sh` for full code).
+This will:
+- Auto-detect your shell (bash, zsh, fish)
+- Install the wrapper to your shell configuration file
+- Create a backup of your config file
+- Provide instructions for activating the changes
 
-### Fish
-
-Source the provided wrapper in your `~/.config/fish/config.fish`:
-
-```fish
-source /path/to/gcool/shell/gcool-wrapper.fish
+After installation, restart your terminal or run:
+```bash
+source ~/.bashrc   # for bash
+source ~/.zshrc    # for zsh
+# or restart fish
 ```
 
-Or copy the function manually (see `shell/gcool-wrapper.fish` for full code).
+### Updating the Installation
+
+If you already have gcool installed and want to update to the latest wrapper:
+
+```bash
+gcool init --update
+```
+
+### Removing the Integration
+
+To cleanly remove gcool from your shell configuration:
+
+```bash
+gcool init --remove
+```
+
+### Manual Installation (Optional)
+
+If you prefer to set up the wrapper manually or have a shell not supported by `gcool init`:
+
+**Bash / Zsh:**
+Copy the function from `shell/gcool-wrapper.sh` to your `~/.bashrc` or `~/.zshrc`
+
+**Fish:**
+Copy the function from `shell/gcool-wrapper.fish` to your `~/.config/fish/config.fish`
 
 ## Usage
 
