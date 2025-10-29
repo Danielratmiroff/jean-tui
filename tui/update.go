@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/coollabsio/gcool/git"
 )
 
 // Update handles all state updates
@@ -972,6 +973,13 @@ func (m Model) handleRenameModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+			// Sanitize branch name
+			newName = git.SanitizeBranchName(newName)
+			if newName == "" {
+				m.status = "Branch name cannot be empty after sanitization"
+				return m, nil
+			}
+
 			if wt := m.selectedWorktree(); wt != nil {
 				if newName == wt.Branch {
 					m.status = "Branch name unchanged"
@@ -980,7 +988,7 @@ func (m Model) handleRenameModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				m.status = "Renaming branch..."
+				m.status = fmt.Sprintf("Renaming branch to '%s'...", newName)
 				m.modal = noModal
 				m.nameInput.Blur()
 				return m, m.renameBranch(wt.Branch, newName)

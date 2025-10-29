@@ -286,6 +286,42 @@ func (m *Manager) RenameBranch(oldName, newName string) error {
 	return nil
 }
 
+// SanitizeBranchName sanitizes a branch name by:
+// - Trimming leading/trailing whitespace
+// - Converting spaces to hyphens
+// - Removing invalid git branch characters
+// - Collapsing multiple consecutive hyphens
+// - Removing leading/trailing hyphens
+func SanitizeBranchName(name string) string {
+	// Trim leading/trailing whitespace
+	name = strings.TrimSpace(name)
+
+	// Convert spaces to hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+
+	// Remove invalid git branch characters: ~ ^ : ? * [ \ and non-ASCII control chars
+	var result strings.Builder
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		// Allow alphanumeric, hyphens, underscores, dots, forward slashes
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '-' || c == '_' || c == '.' || c == '/' {
+			result.WriteByte(c)
+		}
+	}
+	name = result.String()
+
+	// Collapse multiple consecutive hyphens into single hyphen
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+
+	// Remove leading/trailing hyphens
+	name = strings.Trim(name, "-")
+
+	return name
+}
+
 // CheckoutBranch checks out a branch in the main repository
 func (m *Manager) CheckoutBranch(branch string) error {
 	cmd := exec.Command("git", "-C", m.repoPath, "checkout", branch)
