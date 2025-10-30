@@ -239,7 +239,7 @@ func rebuildStyles(colors ThemeColors) {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colors.Border).
 		Padding(1, 2).
-		Width(60)
+		Width(100)
 
 	modalTitleStyle = lipgloss.NewStyle().
 		Foreground(colors.Primary).

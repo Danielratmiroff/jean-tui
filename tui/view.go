@@ -952,6 +952,9 @@ func (m Model) renderCommitModal() string {
 	if hasAIKey {
 		b.WriteString(helpStyle.Render("💡 Press 'g' to generate commit message with AI"))
 		b.WriteString("\n\n")
+	} else {
+		b.WriteString(helpStyle.Render("💡 Tip: Enable AI in settings (s → a) to auto-generate commit messages"))
+		b.WriteString("\n\n")
 	}
 
 	// Buttons
@@ -1319,6 +1322,7 @@ func (m Model) renderAISettingsModal() string {
 	testStyle := buttonStyle
 	saveStyle := buttonStyle
 	cancelStyle := cancelButtonStyle
+	clearStyle := cancelButtonStyle
 
 	if m.aiModalFocusedField == 4 {
 		testStyle = selectedButtonStyle
@@ -1326,6 +1330,8 @@ func (m Model) renderAISettingsModal() string {
 		saveStyle = selectedButtonStyle
 	} else if m.aiModalFocusedField == 6 {
 		cancelStyle = selectedCancelButtonStyle
+	} else if m.aiModalFocusedField == 7 {
+		clearStyle = selectedCancelButtonStyle
 	}
 
 	b.WriteString(testStyle.Render("[ Test Key ]"))
@@ -1333,6 +1339,8 @@ func (m Model) renderAISettingsModal() string {
 	b.WriteString(saveStyle.Render("[ Save ]"))
 	b.WriteString("  ")
 	b.WriteString(cancelStyle.Render("[ Cancel ]"))
+	b.WriteString("  ")
+	b.WriteString(clearStyle.Render("[ Clear ]"))
 
 	b.WriteString("\n\n")
 	b.WriteString(helpStyle.Render("Tab: next field • Enter: confirm • Esc: cancel"))

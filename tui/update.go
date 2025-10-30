@@ -403,7 +403,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.createPR(msg.worktreePath, msg.branch, msg.title, msg.description))
 
 	case themeChangedMsg:
-		m.modal = noModal
 		if msg.err != nil {
 			cmd = m.showErrorNotification("Failed to change theme: " + msg.err.Error(), 3*time.Second)
 			return m, cmd
@@ -908,8 +907,12 @@ func (m Model) handleSearchBasedModalInput(msg tea.KeyMsg, config searchModalCon
 
 	switch msg.String() {
 	case "esc":
-		m.modal = noModal
 		m.searchInput.Blur()
+		// Use custom cancel handler if provided, otherwise default to main view
+		if config.onCancel != nil {
+			return config.onCancel(m)
+		}
+		m.modal = noModal
 		return m, nil
 
 	case "up", "k":
@@ -1001,6 +1004,10 @@ func (m Model) handleSearchBasedModalInput(msg tea.KeyMsg, config searchModalCon
 func (m Model) handleListSelectionModalInput(msg tea.KeyMsg, config listSelectionConfig) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
+		// Use custom cancel handler if provided, otherwise default to main view
+		if config.onCancel != nil {
+			return config.onCancel(m)
+		}
 		m.modal = noModal
 		return m, nil
 
@@ -1032,6 +1039,7 @@ func (m Model) handleListSelectionModalInput(msg tea.KeyMsg, config listSelectio
 // searchModalConfig contains configuration for search-based modals
 type searchModalConfig struct {
 	onConfirm func(m Model, selectedBranch string) (tea.Model, tea.Cmd)
+	onCancel  func(m Model) (tea.Model, tea.Cmd) // Optional: specify where to return on Esc
 }
 
 // listSelectionConfig contains configuration for list selection modals
@@ -1041,6 +1049,7 @@ type listSelectionConfig struct {
 	incrementIndex  func(m *Model)
 	decrementIndex  func(m *Model)
 	onConfirm       func(m Model) (tea.Model, tea.Cmd)
+	onCancel        func(m Model) (tea.Model, tea.Cmd) // Optional: specify where to return on Esc
 	onCustomKey     func(m Model, key string) (tea.Model, tea.Cmd) // Optional
 }
 
@@ -1330,7 +1339,15 @@ func (m Model) handleChangeBaseBranchModalInput(msg tea.KeyMsg) (tea.Model, tea.
 			} else {
 				cmd = m.showInfoNotification("Base branch set to: " + branch)
 			}
+			m.modal = settingsModal
+			m.settingsIndex = 2
 			return m, cmd
+		},
+		onCancel: func(m Model) (tea.Model, tea.Cmd) {
+			// Return to settings modal
+			m.modal = settingsModal
+			m.settingsIndex = 2
+			return m, nil
 		},
 	}
 	return m.handleSearchBasedModalInput(msg, config)
@@ -1544,7 +1561,14 @@ func (m Model) handleEditorSelectModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 					}
 				}
 			}
-			m.modal = noModal
+			m.modal = settingsModal
+			m.settingsIndex = 0
+			return m, nil
+		},
+		onCancel: func(m Model) (tea.Model, tea.Cmd) {
+			// Return to settings modal
+			m.modal = settingsModal
+			m.settingsIndex = 0
 			return m, nil
 		},
 	}
@@ -1562,9 +1586,19 @@ func (m Model) handleThemeSelectModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 				selectedTheme := m.availableThemes[m.themeIndex]
 				// Convert theme name to lowercase for config
 				themeName := strings.ToLower(selectedTheme.Name)
-				return m, m.changeTheme(themeName)
+				cmd := m.changeTheme(themeName)
+				m.modal = settingsModal
+				m.settingsIndex = 1
+				return m, cmd
 			}
-			m.modal = noModal
+			m.modal = settingsModal
+			m.settingsIndex = 1
+			return m, nil
+		},
+		onCancel: func(m Model) (tea.Model, tea.Cmd) {
+			// Return to settings modal
+			m.modal = settingsModal
+			m.settingsIndex = 1
 			return m, nil
 		},
 	}
@@ -1586,6 +1620,36 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.settingsIndex < 4 { // Now 5 settings (editor, theme, base branch, tmux config, AI integration)
 			m.settingsIndex++
 		}
+
+	case "e":
+		// Quick key for Editor
+		m.settingsIndex = 0
+		msg = tea.KeyMsg{Type: tea.KeyEnter}
+		return m.handleSettingsModalInput(msg)
+
+	case "h":
+		// Quick key for Theme (h for "theme" - using h since t is taken for Tmux)
+		m.settingsIndex = 1
+		msg = tea.KeyMsg{Type: tea.KeyEnter}
+		return m.handleSettingsModalInput(msg)
+
+	case "c":
+		// Quick key for Base Branch
+		m.settingsIndex = 2
+		msg = tea.KeyMsg{Type: tea.KeyEnter}
+		return m.handleSettingsModalInput(msg)
+
+	case "t":
+		// Quick key for Tmux Config
+		m.settingsIndex = 3
+		msg = tea.KeyMsg{Type: tea.KeyEnter}
+		return m.handleSettingsModalInput(msg)
+
+	case "a":
+		// Quick key for AI Integration
+		m.settingsIndex = 4
+		msg = tea.KeyMsg{Type: tea.KeyEnter}
+		return m.handleSettingsModalInput(msg)
 
 	case "enter":
 		// Open the selected setting's modal
@@ -1667,8 +1731,8 @@ func (m Model) handleAISettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		// Tab cycles through: API key input (0) -> Model (1) -> AI Commit toggle (2) -> AI Branch toggle (3) -> Test (4) -> Save (5) -> Cancel (6) -> back to API key
-		m.aiModalFocusedField = (m.aiModalFocusedField + 1) % 7
+		// Tab cycles through: API key input (0) -> Model (1) -> AI Commit toggle (2) -> AI Branch toggle (3) -> Test (4) -> Save (5) -> Cancel (6) -> Clear (7) -> back to API key
+		m.aiModalFocusedField = (m.aiModalFocusedField + 1) % 8
 		if m.aiModalFocusedField == 0 {
 			m.aiAPIKeyInput.Focus()
 		} else {
@@ -1678,7 +1742,7 @@ func (m Model) handleAISettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "shift+tab":
 		// Shift+Tab goes backwards
-		m.aiModalFocusedField = (m.aiModalFocusedField - 1 + 7) % 7
+		m.aiModalFocusedField = (m.aiModalFocusedField - 1 + 8) % 8
 		if m.aiModalFocusedField == 0 {
 			m.aiAPIKeyInput.Focus()
 		} else {
@@ -1754,6 +1818,19 @@ func (m Model) handleAISettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsIndex = 4
 			m.aiAPIKeyInput.Blur()
 			return m, nil
+		} else if m.aiModalFocusedField == 7 {
+			// Clear button - remove API key
+			m.aiAPIKeyInput.SetValue("")
+			if m.configManager != nil {
+				if err := m.configManager.SetOpenRouterAPIKey(""); err != nil {
+					return m, m.showErrorNotification("Failed to clear API key: " + err.Error(), 3*time.Second)
+				}
+			}
+			cmd := m.showSuccessNotification("API key cleared - AI features disabled", 2*time.Second)
+			m.modal = settingsModal
+			m.settingsIndex = 4
+			m.aiAPIKeyInput.Blur()
+			return m, cmd
 		}
 
 	default:
