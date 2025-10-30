@@ -328,6 +328,8 @@ func (m Model) renderModal() string {
 		return m.renderEditorSelectModal()
 	case settingsModal:
 		return m.renderSettingsModal()
+	case aiSettingsModal:
+		return m.renderAISettingsModal()
 	case tmuxConfigModal:
 		return m.renderTmuxConfigModal()
 	case themeSelectModal:
@@ -741,6 +743,29 @@ func (m Model) renderRenameModal() string {
 	b.WriteString(inputStyle.Render(m.nameInput.View()))
 	b.WriteString("\n\n")
 
+	// Spinner or status message
+	if m.generatingRename {
+		// Show spinner animation while generating
+		spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		spinner := spinnerFrames[m.renameSpinnerFrame%10]
+		b.WriteString(statusStyle.Render(spinner + " Generating branch name from changes..."))
+		b.WriteString("\n\n")
+	} else if m.renameModalStatus != "" {
+		if strings.Contains(m.renameModalStatus, "❌") {
+			b.WriteString(errorStyle.Render(m.renameModalStatus))
+		} else {
+			b.WriteString(statusStyle.Render(m.renameModalStatus))
+		}
+		b.WriteString("\n\n")
+	}
+
+	// AI hint
+	hasAIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+	if hasAIKey {
+		b.WriteString(helpStyle.Render("💡 Press 'g' to generate branch name from changes"))
+		b.WriteString("\n\n")
+	}
+
 	// Buttons
 	renameStyle := normalItemStyle
 	cancelStyle := normalItemStyle
@@ -760,7 +785,7 @@ func (m Model) renderRenameModal() string {
 	b.WriteString(buttons)
 
 	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Render("Tab: cycle • Enter: confirm • Esc: cancel"))
+	b.WriteString(helpStyle.Render("Tab: cycle • Enter: confirm • g: generate • Esc: cancel"))
 
 	// Center the modal
 	modalContent := b.String()
@@ -903,6 +928,29 @@ func (m Model) renderCommitModal() string {
 	}
 	b.WriteString(bodyStyle.Render(m.commitBodyInput.View()))
 	b.WriteString("\n\n")
+
+	// Status message (error or success from AI generation) or spinner
+	if m.generatingCommit {
+		// Show spinner animation while generating
+		spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		spinner := spinnerFrames[m.spinnerFrame%10]
+		b.WriteString(statusStyle.Render(spinner + " Generating commit message with AI..."))
+		b.WriteString("\n\n")
+	} else if m.commitModalStatus != "" {
+		if strings.Contains(m.commitModalStatus, "❌") {
+			b.WriteString(errorStyle.Render(m.commitModalStatus))
+		} else {
+			b.WriteString(statusStyle.Render(m.commitModalStatus))
+		}
+		b.WriteString("\n\n")
+	}
+
+	// AI availability indicator
+	hasAIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+	if hasAIKey {
+		b.WriteString(helpStyle.Render("💡 Press 'g' to generate commit message with AI"))
+		b.WriteString("\n\n")
+	}
 
 	// Buttons
 	commitStyle := normalItemStyle
@@ -1059,6 +1107,17 @@ func (m Model) renderSettingsModal() string {
 				return "Not installed"
 			}(),
 		},
+		{
+			name:        "AI Integration",
+			key:         "a",
+			description: "Configure OpenRouter API for AI-powered commit messages and branch names",
+			current: func() string {
+				if m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != "" {
+					return "Configured"
+				}
+				return "Not configured"
+			}(),
+		},
 	}
 
 	// Render settings list
@@ -1083,6 +1142,118 @@ func (m Model) renderSettingsModal() string {
 
 	b.WriteString("\n")
 	b.WriteString(helpStyle.Render("↑↓/jk navigate • Enter to configure • Esc to close"))
+
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		modalStyle.Render(b.String()),
+	)
+}
+
+func (m Model) renderAISettingsModal() string {
+	var b strings.Builder
+
+	b.WriteString(modalTitleStyle.Render("AI Integration Settings"))
+	b.WriteString("\n\n")
+
+	// API Key input
+	apiKeyLabel := "OpenRouter API Key:"
+	if m.aiModalFocusedField == 0 {
+		apiKeyLabel = selectedItemStyle.Render(apiKeyLabel)
+	} else {
+		apiKeyLabel = inputLabelStyle.Render(apiKeyLabel)
+	}
+	b.WriteString(apiKeyLabel)
+	b.WriteString("\n")
+	b.WriteString(m.aiAPIKeyInput.View())
+	b.WriteString("\n\n")
+
+	// Model selection
+	modelLabel := "Model:"
+	if m.aiModalFocusedField == 1 {
+		modelLabel = selectedItemStyle.Render(modelLabel)
+	} else {
+		modelLabel = inputLabelStyle.Render(modelLabel)
+	}
+	b.WriteString(modelLabel)
+	b.WriteString("\n")
+	for i, model := range m.aiModels {
+		if i == m.aiModelIndex {
+			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("› %s", model)))
+		} else {
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s", model)))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	// AI Commit toggle
+	aiCommitLabel := "Enable AI commit messages:"
+	if m.aiModalFocusedField == 2 {
+		aiCommitLabel = selectedItemStyle.Render(aiCommitLabel)
+	} else {
+		aiCommitLabel = inputLabelStyle.Render(aiCommitLabel)
+	}
+	b.WriteString(aiCommitLabel)
+	b.WriteString("\n")
+	aiCommitStatus := "Off"
+	if m.aiCommitEnabled {
+		aiCommitStatus = selectedItemStyle.Render("✓ On")
+	} else {
+		aiCommitStatus = normalItemStyle.Render("  Off")
+	}
+	b.WriteString(aiCommitStatus)
+	b.WriteString("\n\n")
+
+	// AI Branch name toggle
+	aiBranchLabel := "Enable AI branch names:"
+	if m.aiModalFocusedField == 3 {
+		aiBranchLabel = selectedItemStyle.Render(aiBranchLabel)
+	} else {
+		aiBranchLabel = inputLabelStyle.Render(aiBranchLabel)
+	}
+	b.WriteString(aiBranchLabel)
+	b.WriteString("\n")
+	aiBranchStatus := "Off"
+	if m.aiBranchNameEnabled {
+		aiBranchStatus = selectedItemStyle.Render("✓ On")
+	} else {
+		aiBranchStatus = normalItemStyle.Render("  Off")
+	}
+	b.WriteString(aiBranchStatus)
+	b.WriteString("\n\n")
+
+	// Status message (error or success from API test)
+	if m.aiModalStatus != "" {
+		if strings.Contains(m.aiModalStatus, "❌") {
+			b.WriteString(errorStyle.Render(m.aiModalStatus))
+		} else {
+			b.WriteString(statusStyle.Render(m.aiModalStatus))
+		}
+		b.WriteString("\n\n")
+	}
+
+	// Buttons
+	testStyle := buttonStyle
+	saveStyle := buttonStyle
+	cancelStyle := cancelButtonStyle
+
+	if m.aiModalFocusedField == 4 {
+		testStyle = selectedButtonStyle
+	} else if m.aiModalFocusedField == 5 {
+		saveStyle = selectedButtonStyle
+	} else if m.aiModalFocusedField == 6 {
+		cancelStyle = selectedCancelButtonStyle
+	}
+
+	b.WriteString(testStyle.Render("[ Test Key ]"))
+	b.WriteString("  ")
+	b.WriteString(saveStyle.Render("[ Save ]"))
+	b.WriteString("  ")
+	b.WriteString(cancelStyle.Render("[ Cancel ]"))
+
+	b.WriteString("\n\n")
+	b.WriteString(helpStyle.Render("Tab: next field • Enter: confirm • Esc: cancel"))
 
 	return lipgloss.Place(
 		m.width, m.height,

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Worktree represents a Git worktree
@@ -286,6 +287,27 @@ func (m *Manager) RenameBranch(oldName, newName string) error {
 	return nil
 }
 
+// RenameBranchInWorktree renames a branch in a specific worktree
+func (m *Manager) RenameBranchInWorktree(worktreePath, oldName, newName string) error {
+	cmd := exec.Command("git", "-C", worktreePath, "branch", "-m", oldName, newName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to rename branch: %s", string(output))
+	}
+	return nil
+}
+
+// BranchExists checks if a branch exists locally in the worktree at the given path
+func (m *Manager) BranchExists(worktreePath, branchName string) (bool, error) {
+	cmd := exec.Command("git", "-C", worktreePath, "rev-parse", "--verify", branchName)
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	// Branch doesn't exist
+	return false, nil
+}
+
 // SanitizeBranchName sanitizes a branch name by:
 // - Trimming leading/trailing whitespace
 // - Converting spaces to hyphens
@@ -441,8 +463,69 @@ func randomInt(max int) int {
 	return int(n.Int64())
 }
 
+// IsRandomBranchName checks if a branch name matches the random naming pattern (adjective-noun-number)
+func (m *Manager) IsRandomBranchName(branchName string) bool {
+	parts := strings.Split(branchName, "-")
+	if len(parts) != 3 {
+		return false
+	}
+
+	// Check if part 1 is in adjectives list
+	for _, adj := range adjectives {
+		if parts[0] == adj {
+			// Check if part 2 is in nouns list
+			for _, noun := range nouns {
+				if parts[1] == noun {
+					// Check if part 3 is a valid number
+					_, err := fmt.Sscanf(parts[2], "%d", new(int))
+					return err == nil
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
 // Push pushes commits from a branch to remote
 func (m *Manager) Push(worktreePath, branch string) error {
+	// Debug logging: capture git config for troubleshooting
+	debugLog := "=== GCool Git Push Debug Log ===\n"
+	debugLog += fmt.Sprintf("Timestamp: %s\n", time.Now().String())
+	debugLog += fmt.Sprintf("Worktree Path: %s\n", worktreePath)
+	debugLog += fmt.Sprintf("Branch: %s\n", branch)
+	debugLog += fmt.Sprintf("Working Directory: %s\n", m.repoPath)
+
+	// Log ALL environment variables
+	debugLog += "\n--- All Environment Variables ---\n"
+	for _, env := range os.Environ() {
+		debugLog += env + "\n"
+	}
+
+	// Log git config
+	debugLog += "\n--- Git Config (in worktree) ---\n"
+	configCmd := exec.Command("git", "-C", worktreePath, "config", "--list")
+	if configOutput, err := configCmd.CombinedOutput(); err == nil {
+		debugLog += string(configOutput)
+	} else {
+		debugLog += fmt.Sprintf("Error getting config: %v\n", err)
+	}
+
+	// Log global git config
+	debugLog += "\n--- Git Config (global) ---\n"
+	globalConfigCmd := exec.Command("git", "config", "--global", "--list")
+	if globalOutput, err := globalConfigCmd.CombinedOutput(); err == nil {
+		debugLog += string(globalOutput)
+	} else {
+		debugLog += fmt.Sprintf("Error getting global config: %v\n", err)
+	}
+
+	// Write debug log to file
+	if err := os.WriteFile("/tmp/gcool-git-debug.log", []byte(debugLog), 0644); err != nil {
+		// Log write error but continue
+		fmt.Fprintf(os.Stderr, "Warning: could not write debug log: %v\n", err)
+	}
+
 	// First check if remote exists
 	cmd := exec.Command("git", "-C", worktreePath, "remote", "get-url", "origin")
 	if err := cmd.Run(); err != nil {
@@ -471,6 +554,16 @@ func (m *Manager) RemoteBranchExists(worktreePath, branch string) (bool, error) 
 		return false, fmt.Errorf("failed to check remote branch: %w", err)
 	}
 	return true, nil
+}
+
+// DeleteRemoteBranch deletes a branch from the remote repository
+func (m *Manager) DeleteRemoteBranch(worktreePath, branch string) error {
+	cmd := exec.Command("git", "-C", worktreePath, "push", "origin", "--delete", branch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to delete remote branch: %s", string(output))
+	}
+	return nil
 }
 
 // HasCommits checks if the current branch has any commits
@@ -883,4 +976,65 @@ func (m *Manager) CreateCommit(worktreePath, subject, body string) (string, erro
 
 	// Fallback: return empty string (commit was successful but we couldn't get the hash)
 	return "", nil
+}
+
+// GetDiff returns the git diff output for uncommitted changes in the worktree
+// This is used as context for AI-generated commit messages
+// It includes: staged changes, unstaged changes, and untracked file status
+func (m *Manager) GetDiff(worktreePath string) (string, error) {
+	var result strings.Builder
+
+	// Get staged changes (git add -A staging area)
+	stagingCmd := exec.Command("git", "-C", worktreePath, "diff", "--cached")
+	stagingOutput, _ := stagingCmd.Output()
+	if len(stagingOutput) > 0 {
+		result.WriteString("=== STAGED CHANGES ===\n")
+		result.Write(stagingOutput)
+		result.WriteString("\n")
+	}
+
+	// Get unstaged changes (modified tracked files not yet staged)
+	unstageCmd := exec.Command("git", "-C", worktreePath, "diff")
+	unstageOutput, _ := unstageCmd.Output()
+	if len(unstageOutput) > 0 {
+		result.WriteString("=== UNSTAGED CHANGES ===\n")
+		result.Write(unstageOutput)
+		result.WriteString("\n")
+	}
+
+	// Get untracked files status
+	statusCmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain")
+	statusOutput, _ := statusCmd.Output()
+	if len(statusOutput) > 0 {
+		result.WriteString("=== FILE STATUS ===\n")
+		result.Write(statusOutput)
+		result.WriteString("\n")
+	}
+
+	diff := result.String()
+	if diff == "" {
+		return "", fmt.Errorf("no changes detected")
+	}
+
+	return diff, nil
+}
+
+// GetDiffFromBase returns the git diff from the base branch
+// This is used as context for AI-generated branch names
+func (m *Manager) GetDiffFromBase(worktreePath, baseBranch string) (string, error) {
+	if baseBranch == "" {
+		return "", fmt.Errorf("base branch not specified")
+	}
+
+	// First, ensure the base branch is fetched from remote
+	fetchCmd := exec.Command("git", "-C", worktreePath, "fetch", "origin", baseBranch)
+	_ = fetchCmd.Run() // Ignore errors, base branch might be local-only
+
+	// Get diff between current branch and base branch
+	cmd := exec.Command("git", "-C", worktreePath, "diff", baseBranch)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get diff from base: %w", err)
+	}
+	return string(output), nil
 }

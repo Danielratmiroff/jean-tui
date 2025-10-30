@@ -178,6 +178,75 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case prBranchNameGeneratedMsg:
+		// AI branch name generated for PR
+		if msg.err != nil {
+			// AI generation failed - fall back to current name (graceful degradation)
+			cmd = m.showWarningNotification("Using current branch name for PR...")
+			return m, tea.Batch(cmd, m.createPR(msg.worktreePath, msg.oldBranchName))
+		}
+
+		// Check if target branch already exists locally
+		targetExists, _ := m.gitManager.BranchExists(msg.worktreePath, msg.newBranchName)
+		if targetExists {
+			// Target branch already exists - skip rename and use current name for PR
+			cmd = m.showWarningNotification("Branch name already exists, using current name...")
+			return m, tea.Batch(cmd, m.createPR(msg.worktreePath, msg.oldBranchName))
+		}
+
+		// Store pending rename state
+		m.pendingPRNewName = msg.newBranchName
+		m.pendingPROldName = msg.oldBranchName
+		m.pendingPRWorktree = msg.worktreePath
+
+		// Check if remote branch exists
+		remoteExists, _ := m.gitManager.RemoteBranchExists(msg.worktreePath, msg.oldBranchName)
+
+		if remoteExists {
+			// Delete remote branch first
+			cmd = m.showInfoNotification("Deleting old remote branch...")
+			return m, tea.Batch(cmd, m.deleteRemoteBranchForPR(msg.worktreePath, msg.oldBranchName, msg.newBranchName))
+		} else {
+			// No remote, go straight to rename
+			cmd = m.showInfoNotification("Renaming to: " + msg.newBranchName)
+			return m, tea.Batch(cmd, m.renameBranchForPR(msg.oldBranchName, msg.newBranchName, msg.worktreePath))
+		}
+
+	case prRemoteBranchDeletedMsg:
+		// Remote branch deleted, now rename local branch
+		if msg.err != nil {
+			// Deletion failed but continue anyway
+			cmd = m.showWarningNotification("Couldn't delete old remote, continuing...")
+		}
+
+		// Check if target branch already exists locally
+		targetExists, _ := m.gitManager.BranchExists(msg.worktreePath, msg.newBranchName)
+		if targetExists {
+			// Target branch already exists - skip rename and use current name for PR
+			cmd = m.showWarningNotification("Branch name already exists, using current name...")
+			return m, tea.Batch(cmd, m.createPR(msg.worktreePath, msg.oldBranchName))
+		}
+
+		cmd = m.showInfoNotification("Renaming branch locally...")
+		return m, tea.Batch(cmd, m.renameBranchForPR(msg.oldBranchName, msg.newBranchName, msg.worktreePath))
+
+	case prBranchRenamedMsg:
+		// Branch renamed, now create PR with new name
+		if msg.err != nil {
+			cmd = m.showErrorNotification("Failed to rename branch: " + msg.err.Error(), 4*time.Second)
+			return m, cmd
+		}
+
+		// Rename succeeded, now create PR with new name
+		cmd = m.showInfoNotification("Creating draft PR with new branch name...")
+		// Also rename tmux sessions and refresh worktree list to show new branch name
+		return m, tea.Batch(
+			cmd,
+			m.renameSessionsForBranch(msg.oldBranchName, msg.newBranchName),
+			m.createPR(msg.worktreePath, msg.newBranchName),
+			func() tea.Msg { return m.loadWorktrees() },
+		)
+
 	case commitCreatedMsg:
 		if msg.err != nil {
 			cmd = m.showErrorNotification("Failed to create commit: " + msg.err.Error(), 4*time.Second)
@@ -198,6 +267,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmd,
 				m.loadWorktrees,
 			)
+		}
+
+	case autoCommitBeforePRMsg:
+		// Auto-commit succeeded, now proceed with PR creation
+		if msg.err != nil {
+			cmd = m.showErrorNotification("Failed to commit changes: " + msg.err.Error(), 4*time.Second)
+			return m, cmd
+		}
+
+		// Commit succeeded, now proceed with PR creation
+		// Check if we should do AI renaming first
+		hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+		aiEnabled := m.configManager != nil && m.configManager.GetAIBranchNameEnabled()
+		isRandomName := m.gitManager.IsRandomBranchName(msg.branch)
+
+		shouldAIRename := hasAPIKey && aiEnabled && isRandomName
+
+		if shouldAIRename {
+			// Start AI rename flow before PR creation
+			cmd = m.showInfoNotification("🤖 Generating semantic branch name...")
+			return m, tea.Batch(cmd, m.generateBranchNameForPR(msg.worktreePath, msg.branch, m.baseBranch))
+		} else {
+			// Normal PR creation (no AI)
+			cmd = m.showInfoNotification("Creating draft PR...")
+			return m, tea.Batch(cmd, m.createPR(msg.worktreePath, msg.branch))
 		}
 
 	case themeChangedMsg:
@@ -260,6 +354,71 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Continue scheduling activity checks
 		cmd = m.scheduleActivityCheck()
 		return m, cmd
+
+	case commitMessageGeneratedMsg:
+		m.generatingCommit = false // Stop spinner animation
+		if msg.err != nil {
+			// Set status message in commit modal
+			m.commitModalStatus = "❌ Error: " + msg.err.Error()
+			m.commitModalStatusTime = time.Now()
+			return m, nil
+		} else {
+			// Populate the commit message fields with AI-generated content
+			m.commitSubjectInput.SetValue(msg.subject)
+			m.commitBodyInput.SetValue(msg.body)
+			// Set success status message
+			m.commitModalStatus = "✅ Message generated successfully - review and edit if needed"
+			m.commitModalStatusTime = time.Now()
+			// Move focus to subject input so user can review/edit
+			m.modalFocused = 0
+			m.commitSubjectInput.Focus()
+			return m, nil
+		}
+
+	case apiKeyTestedMsg:
+		if msg.err != nil {
+			// Set status message in AI settings modal
+			m.aiModalStatus = "❌ Test failed: " + msg.err.Error()
+			m.aiModalStatusTime = time.Now()
+			return m, nil
+		} else {
+			// Set success status message
+			m.aiModalStatus = "✅ API key is valid and working!"
+			m.aiModalStatusTime = time.Now()
+			return m, nil
+		}
+
+	case spinnerTickMsg:
+		// Update spinner animation frame and schedule next tick if still generating
+		if m.generatingCommit {
+			m.spinnerFrame = (m.spinnerFrame + 1) % 10
+			return m, m.animateSpinner()
+		}
+		return m, nil
+
+	case renameGeneratedMsg:
+		// Stop spinner and handle rename generation result
+		m.generatingRename = false
+		if msg.err != nil {
+			// Set error status message
+			m.renameModalStatus = "❌ Error: " + msg.err.Error()
+			m.renameModalStatusTime = time.Now()
+		} else {
+			// Populate the name input with AI-generated branch name
+			m.nameInput.SetValue(msg.name)
+			m.nameInput.CursorEnd()
+			m.renameModalStatus = "✅ Generated from changes"
+			m.renameModalStatusTime = time.Now()
+		}
+		return m, nil
+
+	case renameSpinnerTickMsg:
+		// Update spinner animation frame and schedule next tick if still generating
+		if m.generatingRename {
+			m.renameSpinnerFrame = (m.renameSpinnerFrame + 1) % 10
+			return m, m.animateRenameSpinner()
+		}
+		return m, nil
 	}
 
 	return m, cmd
@@ -382,6 +541,34 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case "g":
+		// AI-generate branch name suggestion and open rename modal
+		if wt := m.selectedWorktree(); wt != nil {
+			// Check if this is a workspace worktree
+			if !strings.Contains(wt.Path, ".workspaces") {
+				return m, m.showWarningNotification("Can only rename workspace branches. Use Shift+R for manual rename.")
+			}
+
+			// Check if API key is configured
+			if m.configManager == nil || m.configManager.GetOpenRouterAPIKey() == "" {
+				return m, m.showWarningNotification("OpenRouter API key not configured. Press 's' to configure AI settings.")
+			}
+
+			// Open rename modal with AI generation
+			m.modal = renameModal
+			m.modalFocused = 0
+			m.nameInput.SetValue(wt.Branch)
+			m.nameInput.Focus()
+			m.nameInput.CursorEnd()
+			m.generatingRename = true
+			m.renameSpinnerFrame = 0
+			m.renameModalStatus = ""
+			return m, tea.Batch(
+				m.animateRenameSpinner(),
+				m.generateRenameWithAI(wt.Path, m.baseBranch),
+			)
+		}
+
 	case "B":
 		// Checkout/switch branch in main repository (Shift+B for checkout)
 		m.modal = checkoutBranchModal
@@ -472,8 +659,34 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "P":
 		// Create draft PR (push + open PR) (Shift+P)
 		if wt := m.selectedWorktree(); wt != nil {
-			cmd = m.showInfoNotification("Creating draft PR...")
-			return m, tea.Batch(cmd, m.createPR(wt.Path, wt.Branch))
+			// First check if there are uncommitted changes
+			hasUncommitted, err := m.gitManager.HasUncommittedChanges(wt.Path)
+			if err != nil {
+				return m, m.showErrorNotification("Failed to check for uncommitted changes: "+err.Error(), 3*time.Second)
+			}
+
+			// If there are uncommitted changes, commit them first
+			if hasUncommitted {
+				cmd = m.showInfoNotification("Committing changes...")
+				return m, tea.Batch(cmd, m.autoCommitBeforePR(wt.Path, wt.Branch))
+			}
+
+			// Check if we should do AI renaming first
+			hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+			aiEnabled := m.configManager != nil && m.configManager.GetAIBranchNameEnabled()
+			isRandomName := m.gitManager.IsRandomBranchName(wt.Branch)
+
+			shouldAIRename := hasAPIKey && aiEnabled && isRandomName
+
+			if shouldAIRename {
+				// Start AI rename flow before PR creation
+				cmd = m.showInfoNotification("🤖 Generating semantic branch name...")
+				return m, tea.Batch(cmd, m.generateBranchNameForPR(wt.Path, wt.Branch, m.baseBranch))
+			} else {
+				// Normal PR creation (no AI)
+				cmd = m.showInfoNotification("Creating draft PR...")
+				return m, tea.Batch(cmd, m.createPR(wt.Path, wt.Branch))
+			}
 		}
 
 	case "C":
@@ -493,6 +706,7 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.commitSubjectInput.SetValue("")
 			m.commitSubjectInput.Focus()
 			m.commitBodyInput.SetValue("")
+			m.commitModalStatus = "" // Clear any previous status
 			return m, nil
 		}
 
@@ -538,6 +752,9 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case settingsModal:
 		return m.handleSettingsModalInput(msg)
+
+	case aiSettingsModal:
+		return m.handleAISettingsModalInput(msg)
 
 	case tmuxConfigModal:
 		return m.handleTmuxConfigModalInput(msg)
@@ -888,6 +1105,25 @@ func (m Model) handleRenameModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.modal = noModal
 		m.nameInput.Blur()
+		// Clear rename generation state when closing modal
+		m.generatingRename = false
+		m.renameSpinnerFrame = 0
+		m.renameModalStatus = ""
+		return m, nil
+
+	case "g":
+		// AI-generate branch name from changes
+		if m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != "" {
+			if wt := m.selectedWorktree(); wt != nil {
+				m.generatingRename = true
+				m.renameSpinnerFrame = 0
+				m.renameModalStatus = ""
+				return m, tea.Batch(
+					m.animateRenameSpinner(),
+					m.generateRenameWithAI(wt.Path, m.baseBranch),
+				)
+			}
+		}
 		return m, nil
 
 	case "tab", "shift+tab":
@@ -993,6 +1229,20 @@ func (m Model) handleCommitModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "g":
+		// Generate AI commit message (only if API key is configured)
+		if m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != "" {
+			if wt := m.selectedWorktree(); wt != nil {
+				m.generatingCommit = true
+				m.spinnerFrame = 0
+				m.commitModalStatus = ""
+				return m, tea.Batch(
+					m.animateSpinner(),
+					m.generateCommitMessageWithAI(wt.Path),
+				)
+			}
+		}
+
 	case "enter":
 		if m.modalFocused == 0 {
 			// In subject input, move to body
@@ -1009,8 +1259,22 @@ func (m Model) handleCommitModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Commit button
 			subject := m.commitSubjectInput.Value()
 			if subject == "" {
-				cmd := m.showWarningNotification("Commit subject cannot be empty")
-				return m, cmd
+				// If AI commit is enabled and API key is configured, try auto-generate
+				if m.configManager != nil && m.configManager.GetAICommitEnabled() && m.configManager.GetOpenRouterAPIKey() != "" {
+					if wt := m.selectedWorktree(); wt != nil {
+						m.generatingCommit = true
+						m.spinnerFrame = 0
+						m.commitModalStatus = ""
+						return m, tea.Batch(
+							m.animateSpinner(),
+							m.generateCommitMessageWithAI(wt.Path),
+						)
+					}
+				} else {
+					// No AI generation, show error
+					cmd := m.showWarningNotification("Commit subject cannot be empty")
+					return m, cmd
+				}
 			}
 
 			body := m.commitBodyInput.Value()
@@ -1022,7 +1286,7 @@ func (m Model) handleCommitModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmd, m.createCommit(wt.Path, subject, body))
 			}
 		} else {
-			// Cancel button
+			// Cancel button (modalFocused == 3)
 			m.modal = noModal
 			m.commitSubjectInput.Blur()
 			m.commitBodyInput.Blur()
@@ -1097,7 +1361,7 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down", "j":
-		if m.settingsIndex < 3 { // Now 4 settings (editor, theme, base branch, tmux config)
+		if m.settingsIndex < 4 { // Now 5 settings (editor, theme, base branch, tmux config, AI integration)
 			m.settingsIndex++
 		}
 
@@ -1155,10 +1419,130 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.modal = tmuxConfigModal
 			m.modalFocused = 0
 			return m, nil
+
+		case 4:
+			// AI Integration setting - open AI settings modal
+			m.modal = aiSettingsModal
+			m.modalFocused = 0
+			m.aiSettingsIndex = 0
+			m.aiAPIKeyInput.Focus()
+			m.aiModalStatus = "" // Clear any previous status
+			return m, nil
 		}
 	}
 
 	return m, nil
+}
+
+func (m Model) handleAISettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg.String() {
+	case "esc", "q":
+		// Close without saving
+		m.modal = settingsModal
+		m.settingsIndex = 4 // Go back to AI Integration option in settings
+		return m, nil
+
+	case "tab":
+		// Tab cycles through: API key input (0) -> Model (1) -> AI Commit toggle (2) -> AI Branch toggle (3) -> Test (4) -> Save (5) -> Cancel (6) -> back to API key
+		m.aiModalFocusedField = (m.aiModalFocusedField + 1) % 7
+		if m.aiModalFocusedField == 0 {
+			m.aiAPIKeyInput.Focus()
+		} else {
+			m.aiAPIKeyInput.Blur()
+		}
+		return m, nil
+
+	case "shift+tab":
+		// Shift+Tab goes backwards
+		m.aiModalFocusedField = (m.aiModalFocusedField - 1 + 7) % 7
+		if m.aiModalFocusedField == 0 {
+			m.aiAPIKeyInput.Focus()
+		} else {
+			m.aiAPIKeyInput.Blur()
+		}
+		return m, nil
+
+	case "up", "k":
+		if m.aiModalFocusedField == 1 && m.aiModelIndex > 0 {
+			// In model selection, move up
+			m.aiModelIndex--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.aiModalFocusedField == 1 && m.aiModelIndex < len(m.aiModels)-1 {
+			// In model selection, move down
+			m.aiModelIndex++
+		}
+		return m, nil
+
+	case "space", "enter":
+		if m.aiModalFocusedField == 2 {
+			// Toggle AI commit enabled
+			m.aiCommitEnabled = !m.aiCommitEnabled
+			return m, nil
+		} else if m.aiModalFocusedField == 3 {
+			// Toggle AI branch name enabled
+			m.aiBranchNameEnabled = !m.aiBranchNameEnabled
+			return m, nil
+		} else if m.aiModalFocusedField == 4 {
+			// Test button
+			apiKey := m.aiAPIKeyInput.Value()
+			if apiKey == "" {
+				return m, m.showWarningNotification("API key cannot be empty - enter key first")
+			}
+			model := m.aiModels[m.aiModelIndex]
+			cmd := m.showInfoNotification("Testing API key...")
+			return m, tea.Batch(cmd, m.testOpenRouterAPIKey(apiKey, model))
+		} else if m.aiModalFocusedField == 5 {
+			// Save button
+			apiKey := m.aiAPIKeyInput.Value()
+			if apiKey == "" {
+				return m, m.showWarningNotification("API key cannot be empty")
+			}
+
+			// Save all settings to config
+			var cmd tea.Cmd
+			if m.configManager != nil {
+				if err := m.configManager.SetOpenRouterAPIKey(apiKey); err != nil {
+					return m, m.showErrorNotification("Failed to save API key: " + err.Error(), 3*time.Second)
+				}
+				if err := m.configManager.SetOpenRouterModel(m.aiModels[m.aiModelIndex]); err != nil {
+					return m, m.showErrorNotification("Failed to save model: " + err.Error(), 3*time.Second)
+				}
+				if err := m.configManager.SetAICommitEnabled(m.aiCommitEnabled); err != nil {
+					return m, m.showErrorNotification("Failed to save AI commit setting: " + err.Error(), 3*time.Second)
+				}
+				if err := m.configManager.SetAIBranchNameEnabled(m.aiBranchNameEnabled); err != nil {
+					return m, m.showErrorNotification("Failed to save AI branch name setting: " + err.Error(), 3*time.Second)
+				}
+				cmd = m.showSuccessNotification("AI settings saved successfully", 2*time.Second)
+			}
+
+			// Return to settings modal
+			m.modal = settingsModal
+			m.settingsIndex = 4
+			m.aiAPIKeyInput.Blur()
+			return m, cmd
+		} else if m.aiModalFocusedField == 6 {
+			// Cancel button
+			m.modal = settingsModal
+			m.settingsIndex = 4
+			m.aiAPIKeyInput.Blur()
+			return m, nil
+		}
+
+	default:
+		// If in API key input field, pass keystroke to text input
+		if m.aiModalFocusedField == 0 {
+			m.aiAPIKeyInput, cmd = m.aiAPIKeyInput.Update(msg)
+			return m, cmd
+		}
+	}
+
+	return m, cmd
 }
 
 func (m Model) handleTmuxConfigModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

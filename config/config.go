@@ -12,6 +12,10 @@ type Config struct {
 	Repositories        map[string]*RepoConfig `json:"repositories"`
 	LastUpdateCheckTime string                 `json:"lastUpdateCheckTime"` // RFC3339 format
 	DefaultTheme        string                 `json:"default_theme,omitempty"` // Global default theme, "" = matrix
+	OpenRouterAPIKey    string                 `json:"openrouter_api_key,omitempty"` // API key for OpenRouter AI
+	OpenRouterModel     string                 `json:"openrouter_model,omitempty"` // OpenRouter model, "" = default haiku
+	AICommitEnabled     bool                   `json:"ai_commit_enabled,omitempty"` // Enable AI commit message generation
+	AIBranchNameEnabled bool                   `json:"ai_branch_name_enabled,omitempty"` // Enable AI branch name generation
 }
 
 // RepoConfig represents configuration for a specific repository
@@ -241,4 +245,52 @@ func (m *Manager) GetGlobalTheme() string {
 		return m.config.DefaultTheme
 	}
 	return "matrix"
+}
+
+// GetOpenRouterAPIKey returns the OpenRouter API key
+func (m *Manager) GetOpenRouterAPIKey() string {
+	return m.config.OpenRouterAPIKey
+}
+
+// SetOpenRouterAPIKey sets the OpenRouter API key
+func (m *Manager) SetOpenRouterAPIKey(apiKey string) error {
+	m.config.OpenRouterAPIKey = apiKey
+	return m.save()
+}
+
+// GetOpenRouterModel returns the OpenRouter model
+// Returns "google/gemini-2.5-flash-lite" if not set
+func (m *Manager) GetOpenRouterModel() string {
+	if m.config.OpenRouterModel != "" {
+		return m.config.OpenRouterModel
+	}
+	return "google/gemini-2.5-flash-lite"
+}
+
+// SetOpenRouterModel sets the OpenRouter model
+func (m *Manager) SetOpenRouterModel(model string) error {
+	m.config.OpenRouterModel = model
+	return m.save()
+}
+
+// GetAICommitEnabled returns whether AI commit message generation is enabled
+func (m *Manager) GetAICommitEnabled() bool {
+	return m.config.AICommitEnabled
+}
+
+// SetAICommitEnabled sets whether AI commit message generation is enabled
+func (m *Manager) SetAICommitEnabled(enabled bool) error {
+	m.config.AICommitEnabled = enabled
+	return m.save()
+}
+
+// GetAIBranchNameEnabled returns whether AI branch name generation is enabled
+func (m *Manager) GetAIBranchNameEnabled() bool {
+	return m.config.AIBranchNameEnabled
+}
+
+// SetAIBranchNameEnabled sets whether AI branch name generation is enabled
+func (m *Manager) SetAIBranchNameEnabled(enabled bool) error {
+	m.config.AIBranchNameEnabled = enabled
+	return m.save()
 }

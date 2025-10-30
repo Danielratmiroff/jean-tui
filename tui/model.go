@@ -11,6 +11,7 @@ import (
 	"github.com/coollabsio/gcool/config"
 	"github.com/coollabsio/gcool/git"
 	"github.com/coollabsio/gcool/github"
+	"github.com/coollabsio/gcool/openrouter"
 	"github.com/coollabsio/gcool/session"
 )
 
@@ -39,6 +40,7 @@ const (
 	commitModal
 	helperModal
 	themeSelectModal
+	aiSettingsModal
 )
 
 // NotificationType defines the type of notification
@@ -114,6 +116,34 @@ type Model struct {
 	settingsIndex   int           // Selected setting option index
 	deleteHasUncommitted   bool     // Whether worktree to delete has uncommitted changes
 	deleteConfirmForce     bool     // User acknowledged they want to delete despite uncommitted changes
+
+	// AI Settings modal state
+	aiSettingsIndex        int                    // Selected AI setting option index
+	aiAPIKeyInput          textinput.Model        // Input field for OpenRouter API key
+	aiModelIndex           int                    // Selected model index
+	aiModels               []string               // List of available OpenRouter models
+	aiCommitEnabled        bool                   // Whether AI commit message generation is enabled
+	aiBranchNameEnabled    bool                   // Whether AI branch name generation is enabled
+	aiModalFocusedField    int                    // Which field in AI settings modal is focused (0-4: api key, model, commit toggle, branch toggle, buttons)
+	aiModalStatus          string                 // Status message for AI settings modal (error/success)
+	aiModalStatusTime      time.Time              // When the status was set
+
+	// Commit modal status
+	commitModalStatus      string                 // Status message for commit modal (error/success from AI)
+	commitModalStatusTime  time.Time              // When the status was set
+	generatingCommit       bool                   // Whether we're currently generating a commit message
+	spinnerFrame           int                    // Current spinner animation frame (0-3)
+
+	// Rename modal status (AI generation)
+	renameModalStatus      string                 // Status message for rename modal (error/success from AI)
+	renameModalStatusTime  time.Time              // When the status was set
+	generatingRename       bool                   // Whether we're currently generating a rename suggestion
+	renameSpinnerFrame     int                    // Current spinner animation frame for rename (0-9)
+
+	// PR creation with AI branch naming state
+	pendingPRNewName  string // New branch name being used for PR creation
+	pendingPROldName  string // Old branch name being replaced
+	pendingPRWorktree string // Worktree path for PR creation
 }
 
 // NewModel creates a new TUI model
@@ -144,6 +174,12 @@ func NewModel(repoPath string, autoClaude bool) Model {
 	commitBodyInput.CharLimit = 500
 	commitBodyInput.Width = 70
 
+	aiAPIKeyInput := textinput.New()
+	aiAPIKeyInput.Placeholder = "sk-or-..."
+	aiAPIKeyInput.CharLimit = 256
+	aiAPIKeyInput.Width = 50
+	aiAPIKeyInput.EchoMode = textinput.EchoPassword // Mask API key input
+
 	// Initialize config manager (ignore errors, will use defaults)
 	configManager, _ := config.NewManager()
 
@@ -165,7 +201,22 @@ func NewModel(repoPath string, autoClaude bool) Model {
 		"zed",     // Zed
 	}
 
-	return Model{
+	// List of OpenRouter models
+	aiModels := []string{
+		"google/gemini-2.5-flash-lite",
+		"google/gemini-2.0-flash",
+		"google/gemini-2.0-flash-exp",
+		"google/gemini-1.5-pro",
+		"google/gemini-1.5-flash",
+		"anthropic/claude-3.5-haiku",
+		"anthropic/claude-3.5-sonnet",
+		"anthropic/claude-3-opus",
+		"openai/gpt-4-turbo",
+		"openai/gpt-4",
+		"meta-llama/llama-2-70b-chat",
+	}
+
+	m := Model{
 		gitManager:         gitManager,
 		sessionManager:     session.NewManager(),
 		configManager:      configManager,
@@ -175,11 +226,33 @@ func NewModel(repoPath string, autoClaude bool) Model {
 		searchInput:        searchInput,
 		commitSubjectInput: commitSubjectInput,
 		commitBodyInput:    commitBodyInput,
+		aiAPIKeyInput:      aiAPIKeyInput,
+		aiModels:           aiModels,
 		autoClaude:         autoClaude,
 		repoPath:           absoluteRepoPath,
 		editors:            editors,
 		availableThemes:    GetAvailableThemes(),
 	}
+
+	// Load AI settings from config
+	if configManager != nil {
+		if apiKey := configManager.GetOpenRouterAPIKey(); apiKey != "" {
+			m.aiAPIKeyInput.SetValue(apiKey)
+		}
+		m.aiCommitEnabled = configManager.GetAICommitEnabled()
+		m.aiBranchNameEnabled = configManager.GetAIBranchNameEnabled()
+
+		// Set model index based on saved model
+		savedModel := configManager.GetOpenRouterModel()
+		for i, model := range aiModels {
+			if model == savedModel {
+				m.aiModelIndex = i
+				break
+			}
+		}
+	}
+
+	return m
 }
 
 // Init initializes the model
@@ -279,6 +352,12 @@ type (
 		commitHash string
 	}
 
+	autoCommitBeforePRMsg struct {
+		worktreePath string
+		branch       string
+		err          error
+	}
+
 	themeChangedMsg struct {
 		theme string
 		err   error
@@ -292,6 +371,49 @@ type (
 
 	notificationClearedMsg struct {
 		id int64
+	}
+
+	commitMessageGeneratedMsg struct {
+		subject string
+		body    string
+		err     error
+	}
+
+
+	apiKeyTestedMsg struct {
+		success bool
+		err     error
+	}
+
+	renameGeneratedMsg struct {
+		name string
+		err  error
+	}
+
+	renameSpinnerTickMsg struct{}
+
+	spinnerTickMsg struct{}
+
+	prBranchNameGeneratedMsg struct {
+		oldBranchName string
+		newBranchName string
+		worktreePath  string
+		err           error
+	}
+
+	prBranchRenamedMsg struct {
+		oldBranchName   string
+		newBranchName   string
+		worktreePath    string
+		hadRemoteBranch bool
+		err             error
+	}
+
+	prRemoteBranchDeletedMsg struct {
+		oldBranchName string
+		newBranchName string
+		worktreePath  string
+		err           error
 	}
 )
 
@@ -500,6 +622,24 @@ func (m Model) createCommit(worktreePath, subject, body string) tea.Cmd {
 	}
 }
 
+// autoCommitBeforePR automatically commits uncommitted changes before creating a PR
+func (m Model) autoCommitBeforePR(worktreePath, branch string) tea.Cmd {
+	return func() tea.Msg {
+		// Auto-generate a commit message based on the branch name
+		subject := strings.ReplaceAll(branch, "-", " ")
+		subject = strings.ReplaceAll(subject, "_", " ")
+		subject = strings.TrimSpace(subject)
+
+		// Capitalize first letter
+		if len(subject) > 0 {
+			subject = strings.ToUpper(subject[:1]) + subject[1:]
+		}
+
+		_, err := m.gitManager.CreateCommit(worktreePath, subject, "")
+		return autoCommitBeforePRMsg{worktreePath: worktreePath, branch: branch, err: err}
+	}
+}
+
 // changeTheme changes the theme and saves it to config
 func (m Model) changeTheme(themeName string) tea.Cmd {
 	return func() tea.Msg {
@@ -514,6 +654,164 @@ func (m Model) changeTheme(themeName string) tea.Cmd {
 		}
 
 		return themeChangedMsg{theme: themeName, err: nil}
+	}
+}
+
+// generateCommitMessageWithAI generates a commit message using OpenRouter API
+func (m Model) generateCommitMessageWithAI(worktreePath string) tea.Cmd {
+	return func() tea.Msg {
+		apiKey := m.configManager.GetOpenRouterAPIKey()
+		if apiKey == "" {
+			return commitMessageGeneratedMsg{err: fmt.Errorf("OpenRouter API key not configured")}
+		}
+
+		// Get the git diff as context
+		diff, err := m.gitManager.GetDiff(worktreePath)
+		if err != nil {
+			return commitMessageGeneratedMsg{err: fmt.Errorf("failed to get diff: %w", err)}
+		}
+
+		if diff == "" {
+			return commitMessageGeneratedMsg{err: fmt.Errorf("no changes to commit")}
+		}
+
+		// Call OpenRouter API
+		model := m.configManager.GetOpenRouterModel()
+		client := openrouter.NewClient(apiKey, model)
+		subject, body, err := client.GenerateCommitMessage(diff)
+		if err != nil {
+			return commitMessageGeneratedMsg{err: fmt.Errorf("failed to generate commit message: %w", err)}
+		}
+
+		return commitMessageGeneratedMsg{subject: subject, body: body, err: nil}
+	}
+}
+
+// generateRenameWithAI generates a branch name suggestion based on git changes
+func (m Model) generateRenameWithAI(worktreePath, baseBranch string) tea.Cmd {
+	return func() tea.Msg {
+		apiKey := m.configManager.GetOpenRouterAPIKey()
+		if apiKey == "" {
+			return renameGeneratedMsg{err: fmt.Errorf("OpenRouter API key not configured")}
+		}
+
+		// Get uncommitted changes
+		diff := ""
+		uncommittedDiff, _ := m.gitManager.GetDiff(worktreePath)
+		if uncommittedDiff != "" {
+			diff = uncommittedDiff
+		} else if baseBranch != "" {
+			// No uncommitted changes, try to get diff from base branch
+			baseDiff, _ := m.gitManager.GetDiffFromBase(worktreePath, baseBranch)
+			diff = baseDiff
+		}
+
+		// If still no changes, return error
+		if diff == "" {
+			return renameGeneratedMsg{err: fmt.Errorf("no changes detected to generate branch name")}
+		}
+
+		// Call OpenRouter API
+		model := m.configManager.GetOpenRouterModel()
+		client := openrouter.NewClient(apiKey, model)
+		name, err := client.GenerateBranchName(diff)
+		if err != nil {
+			return renameGeneratedMsg{err: fmt.Errorf("failed to generate branch name: %w", err)}
+		}
+
+		return renameGeneratedMsg{name: name, err: nil}
+	}
+}
+
+// generateBranchNameForPR generates an AI branch name for PR creation
+func (m Model) generateBranchNameForPR(worktreePath, oldBranch, baseBranch string) tea.Cmd {
+	return func() tea.Msg {
+		apiKey := m.configManager.GetOpenRouterAPIKey()
+		if apiKey == "" {
+			return prBranchNameGeneratedMsg{
+				oldBranchName: oldBranch,
+				worktreePath:  worktreePath,
+				err:           fmt.Errorf("API key not configured"),
+			}
+		}
+
+		// Get diff (uncommitted first, then from base)
+		diff := ""
+		uncommittedDiff, _ := m.gitManager.GetDiff(worktreePath)
+		if uncommittedDiff != "" {
+			diff = uncommittedDiff
+		} else if baseBranch != "" {
+			baseDiff, _ := m.gitManager.GetDiffFromBase(worktreePath, baseBranch)
+			diff = baseDiff
+		}
+
+		// No changes to generate from
+		if diff == "" {
+			return prBranchNameGeneratedMsg{
+				oldBranchName: oldBranch,
+				worktreePath:  worktreePath,
+				err:           fmt.Errorf("no changes to generate name from"),
+			}
+		}
+
+		// Call AI
+		model := m.configManager.GetOpenRouterModel()
+		client := openrouter.NewClient(apiKey, model)
+		newName, err := client.GenerateBranchName(diff)
+
+		return prBranchNameGeneratedMsg{
+			oldBranchName: oldBranch,
+			newBranchName: newName,
+			worktreePath:  worktreePath,
+			err:           err,
+		}
+	}
+}
+
+// deleteRemoteBranchForPR deletes the old remote branch during PR creation
+func (m Model) deleteRemoteBranchForPR(worktreePath, oldBranch, newBranch string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.gitManager.DeleteRemoteBranch(worktreePath, oldBranch)
+		return prRemoteBranchDeletedMsg{
+			oldBranchName: oldBranch,
+			newBranchName: newBranch,
+			worktreePath:  worktreePath,
+			err:           err,
+		}
+	}
+}
+
+// renameBranchForPR renames a branch during PR creation
+func (m Model) renameBranchForPR(oldName, newName, worktreePath string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.gitManager.RenameBranchInWorktree(worktreePath, oldName, newName)
+		return prBranchRenamedMsg{
+			oldBranchName: oldName,
+			newBranchName: newName,
+			worktreePath:  worktreePath,
+			err:           err,
+		}
+	}
+}
+
+// testOpenRouterAPIKey tests the OpenRouter API key to verify it works
+func (m Model) testOpenRouterAPIKey(apiKey, model string) tea.Cmd {
+	return func() tea.Msg {
+		if apiKey == "" {
+			return apiKeyTestedMsg{success: false, err: fmt.Errorf("API key is empty")}
+		}
+
+		// Create a test client and make a simple API call
+		client := openrouter.NewClient(apiKey, model)
+
+		// Make a simple test prompt
+		testPrompt := "Say 'API key working' (only say that phrase, nothing else)"
+		_, _, err := client.GenerateCommitMessage(testPrompt)
+		if err != nil {
+			return apiKeyTestedMsg{success: false, err: err}
+		}
+
+		return apiKeyTestedMsg{success: true, err: nil}
 	}
 }
 
@@ -618,6 +916,21 @@ func (m Model) refreshWithPull() tea.Cmd {
 func (m Model) scheduleActivityCheck() tea.Cmd {
 	return tea.Every(2*time.Second, func(t time.Time) tea.Msg {
 		return activityTickMsg(t)
+	})
+}
+
+// animateSpinner sends a spinner tick message with 100ms interval
+// Continues animating as long as generatingCommit is true
+func (m Model) animateSpinner() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
+
+// animateRenameSpinner sends a spinner tick message for rename modal
+func (m Model) animateRenameSpinner() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return renameSpinnerTickMsg{}
 	})
 }
 
