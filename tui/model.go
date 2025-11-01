@@ -37,6 +37,7 @@ type SwitchInfo struct {
 	AutoClaude     bool
 	TerminalOnly   bool   // If true, open terminal session instead of Claude session
 	ScriptCommand  string // If set, run this script command instead of shell/Claude
+	SessionName    string // Custom name for Claude session (for --session flag)
 }
 
 // ScriptExecution represents a running or completed script
@@ -72,6 +73,7 @@ const (
 	prListModal
 	scriptsModal
 	scriptOutputModal
+	createWithNameModal
 )
 
 // NotificationType defines the type of notification
@@ -135,6 +137,7 @@ type Model struct {
 	nameInput              textinput.Model
 	pathInput              textinput.Model
 	searchInput            textinput.Model
+	sessionNameInput       textinput.Model // Session name input for new worktree
 	commitSubjectInput     textinput.Model // Subject line for commit message
 	commitBodyInput        textinput.Model // Body for commit message
 	prTitleInput           textinput.Model // PR title input
@@ -239,6 +242,11 @@ func NewModel(repoPath string, autoClaude bool) Model {
 	searchInput.CharLimit = 100
 	searchInput.Width = 50
 
+	sessionNameInput := textinput.New()
+	sessionNameInput.Placeholder = "Session name (e.g., my-feature)"
+	sessionNameInput.CharLimit = 100
+	sessionNameInput.Width = 50
+
 	commitSubjectInput := textinput.New()
 	commitSubjectInput.Placeholder = "Commit subject (required)"
 	commitSubjectInput.CharLimit = 72
@@ -309,6 +317,7 @@ func NewModel(repoPath string, autoClaude bool) Model {
 		nameInput:          nameInput,
 		pathInput:          pathInput,
 		searchInput:        searchInput,
+		sessionNameInput:   sessionNameInput,
 		commitSubjectInput: commitSubjectInput,
 		commitBodyInput:    commitBodyInput,
 		prTitleInput:       prTitleInput,
@@ -395,6 +404,13 @@ type (
 		err    error
 		path   string
 		branch string
+	}
+
+	worktreeCreatedWithSessionMsg struct {
+		err         error
+		path        string
+		branch      string
+		sessionName string
 	}
 
 	worktreeDeletedMsg struct {
@@ -613,6 +629,24 @@ func (m Model) createWorktree(path, branch string, newBranch bool) tea.Cmd {
 
 		err := m.gitManager.Create(path, branch, newBranch, baseBranch)
 		return worktreeCreatedMsg{err: err, path: path, branch: branch}
+	}
+}
+
+func (m Model) createWorktreeWithSession(path, sessionName string, newBranch bool) tea.Cmd {
+	return func() tea.Msg {
+		// Ensure .workspaces directory exists
+		if err := m.gitManager.EnsureWorkspacesDir(); err != nil {
+			return worktreeCreatedWithSessionMsg{err: err, path: path, branch: sessionName, sessionName: sessionName}
+		}
+
+		// Use base branch when creating new branch
+		baseBranch := ""
+		if newBranch {
+			baseBranch = m.baseBranch
+		}
+
+		err := m.gitManager.Create(path, sessionName, newBranch, baseBranch)
+		return worktreeCreatedWithSessionMsg{err: err, path: path, branch: sessionName, sessionName: sessionName}
 	}
 }
 

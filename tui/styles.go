@@ -2,18 +2,18 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Theme color variables - initialized with Matrix theme, updated by ApplyTheme()
+// Theme color variables - initialized with Coolify theme, updated by ApplyTheme()
 var (
-	// Colors - initialized with Matrix theme
-	primaryColor   = lipgloss.Color("#00FF41") // Bright Matrix green
-	secondaryColor = lipgloss.Color("#008F11") // Medium green
-	accentColor    = lipgloss.Color("#00FF41") // Bright Matrix green for highlights
-	warningColor   = lipgloss.Color("#AAFF00") // Yellow-green for warnings
-	successColor   = lipgloss.Color("#00FF41") // Bright green for success
-	errorColor     = lipgloss.Color("#FF0000") // Red for errors
-	mutedColor     = lipgloss.Color("#00AA00") // Medium green for muted text
-	bgColor        = lipgloss.Color("#000000") // Pure black background
-	fgColor        = lipgloss.Color("#00FF41") // Bright green text
+	// Colors - initialized with Coolify theme
+	primaryColor   = lipgloss.Color("#9333EA") // Coolify purple
+	secondaryColor = lipgloss.Color("#7C3AED") // Coolify lighter purple
+	accentColor    = lipgloss.Color("#A855F7") // Coolify accent purple
+	warningColor   = lipgloss.Color("#FFC107") // Coolify amber warning
+	successColor   = lipgloss.Color("#10B981") // Coolify green success
+	errorColor     = lipgloss.Color("#EF4444") // Coolify red error
+	mutedColor     = lipgloss.Color("#9CA3AF") // Coolify gray muted
+	bgColor        = lipgloss.Color("#0a0a0a") // Coolify near-black background
+	fgColor        = lipgloss.Color("#E5E5E5") // Coolify light gray text
 )
 
 // Style variables - mutable, rebuilt by ApplyTheme()
@@ -63,8 +63,8 @@ var (
 	infoNotifStyle    lipgloss.Style
 )
 
-// InitStyles initializes styles with the Matrix theme on startup
+// InitStyles initializes styles with the Coolify theme on startup
 func InitStyles() {
-	// Apply the default Matrix theme
-	ApplyTheme("matrix")
+	// Apply the default Coolify theme
+	ApplyTheme("coolify")
 }

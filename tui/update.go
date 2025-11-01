@@ -135,6 +135,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 		}
 
+	case worktreeCreatedWithSessionMsg:
+		if msg.err != nil {
+			// Check if this is a setup script error (warning) or a git error (error)
+			errMsg := msg.err.Error()
+			if strings.Contains(errMsg, "setup script failed") {
+				// Setup script failed - show warning but worktree was created
+				warningMsg := strings.TrimPrefix(errMsg, "setup script failed: ")
+				cmd = m.showWarningNotification(fmt.Sprintf("Worktree created but setup script failed:\n%s", warningMsg))
+				m.modal = noModal
+				m.lastCreatedBranch = msg.branch
+				// Store session name for switch
+				m.switchInfo = SwitchInfo{
+					Path:       msg.path,
+					Branch:     msg.branch,
+					SessionName: msg.sessionName,
+					AutoClaude: m.autoClaude,
+				}
+				return m, tea.Batch(cmd, m.loadWorktreesLightweight())
+			} else {
+				// Git worktree creation failed - show error
+				cmd = m.showErrorNotification("Failed to create worktree", 4*time.Second)
+				return m, cmd
+			}
+		} else {
+			cmd = m.showSuccessNotification("Worktree created successfully", 3*time.Second)
+			m.modal = noModal
+
+			// Store the newly created branch name for selection after reload
+			m.lastCreatedBranch = msg.branch
+
+			// Store session name for switch
+			m.switchInfo = SwitchInfo{
+				Path:        msg.path,
+				Branch:      msg.branch,
+				SessionName: msg.sessionName,
+				AutoClaude:  m.autoClaude,
+			}
+
+			// Quick refresh without expensive status checks
+			return m, tea.Batch(
+				cmd,
+				m.loadWorktreesLightweight(),
+			)
+		}
+
 	case worktreeDeletedMsg:
 		if msg.err != nil {
 			cmd = m.showErrorNotification("Failed to delete worktree", 4*time.Second)
@@ -984,22 +1029,18 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.runScript("run", scriptCmd, wt.Path, scriptIdx)
 
 	case "n":
-		// Instantly create worktree with random branch name from base branch
+		// Open create with custom name modal
 		randomName, err := m.gitManager.GenerateRandomName()
 		if err != nil {
 			cmd = m.showWarningNotification("Failed to generate random name")
 			return m, cmd
 		}
 
-		// Generate random path
-		path, err := m.gitManager.GetDefaultPath(randomName)
-		if err != nil {
-			cmd = m.showWarningNotification("Failed to generate workspace path")
-			return m, cmd
-		}
-
-		cmd = m.showInfoNotification("Creating worktree with branch: " + randomName)
-		return m, tea.Batch(cmd, m.createWorktree(path, randomName, true))
+		m.modal = createWithNameModal
+		m.sessionNameInput.SetValue(randomName)
+		m.sessionNameInput.Focus()
+		m.modalFocused = 0
+		return m, nil
 
 	case "b":
 		// Open change base branch modal (b for base branch)
@@ -1049,10 +1090,12 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				_ = m.configManager.SetLastSelectedBranch(m.repoPath, wt.Branch)
 			}
 			// Store pending switch info and ensure worktree exists
+			// SessionName is the branch name (used for persistent Claude sessions)
 			m.pendingSwitchInfo = &SwitchInfo{
-				Path:         wt.Path,
-				Branch:       wt.Branch,
-				AutoClaude:   m.autoClaude,
+				Path:        wt.Path,
+				Branch:      wt.Branch,
+				SessionName: wt.Branch, // Use branch name as session name for Claude
+				AutoClaude:  m.autoClaude,
 				TerminalOnly: false, // Explicitly use Claude session, not terminal-only
 			}
 			m.ensuringWorktree = true
@@ -1131,8 +1174,9 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pendingSwitchInfo = &SwitchInfo{
 				Path:         wt.Path,
 				Branch:       wt.Branch,
-				AutoClaude:   false,        // Never auto-start Claude for terminal
-				TerminalOnly: true,         // Signal this is a terminal session
+				SessionName:  wt.Branch, // Use branch name as session identifier
+				AutoClaude:   false,     // Never auto-start Claude for terminal
+				TerminalOnly: true,      // Signal this is a terminal session
 			}
 			m.ensuringWorktree = true
 			debugLog("DEBUG: ensuring worktree exists before opening terminal")
@@ -1387,6 +1431,9 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.modal {
 	case createModal:
 		return m.handleCreateModalInput(msg)
+
+	case createWithNameModal:
+		return m.handleCreateWithNameModalInput(msg)
 
 	case deleteModal:
 		return m.handleDeleteModalInput(msg)
@@ -1655,6 +1702,73 @@ func (m Model) handleCreateModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if m.modalFocused == 0 && m.createNewBranch {
 		m.nameInput, cmd = m.nameInput.Update(msg)
+	}
+
+	return m, cmd
+}
+
+func (m Model) handleCreateWithNameModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.modal = noModal
+		m.sessionNameInput.Blur()
+		return m, nil
+
+	case "tab", "shift+tab":
+		// Cycle through: sessionNameInput -> create button -> cancel button
+		m.modalFocused = (m.modalFocused + 1) % 3
+		if m.modalFocused == 0 {
+			m.sessionNameInput.Focus()
+		} else {
+			m.sessionNameInput.Blur()
+		}
+		return m, nil
+
+	case "enter":
+		if m.modalFocused == 0 {
+			// In input, move to create button
+			m.modalFocused = 1
+			m.sessionNameInput.Blur()
+			return m, nil
+		} else if m.modalFocused == 1 {
+			// Create button
+			sessionName := m.sessionNameInput.Value()
+			if sessionName == "" {
+				cmd := m.showWarningNotification("Session name cannot be empty")
+				return m, cmd
+			}
+
+			// Sanitize the session name to ensure it's a valid branch name
+			sanitizedName := m.sessionManager.SanitizeBranchName(sessionName)
+			if sanitizedName == "" {
+				cmd := m.showWarningNotification("Session name contains no valid characters")
+				return m, cmd
+			}
+
+			// Generate path from sanitized session name
+			path, err := m.gitManager.GetDefaultPath(sanitizedName)
+			if err != nil {
+				cmd := m.showWarningNotification("Failed to generate workspace path")
+				return m, cmd
+			}
+
+			m.modal = noModal
+			m.sessionNameInput.Blur()
+			debugMsg := fmt.Sprintf("DEBUG: Creating worktree\n  Branch/Session: %s\n  Path: %s", sanitizedName, path)
+			cmd := m.showInfoNotification("Creating worktree with session: " + sanitizedName + "\n\n" + debugMsg)
+			return m, tea.Batch(cmd, m.createWorktreeWithSession(path, sanitizedName, true))
+		} else {
+			// Cancel button (modalFocused == 2)
+			m.modal = noModal
+			m.sessionNameInput.Blur()
+			return m, nil
+		}
+	}
+
+	// Handle text input
+	var cmd tea.Cmd
+	if m.modalFocused == 0 {
+		m.sessionNameInput, cmd = m.sessionNameInput.Update(msg)
 	}
 
 	return m, cmd

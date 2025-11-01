@@ -123,7 +123,7 @@ func main() {
 	if m, ok := finalModel.(tui.Model); ok {
 		switchInfo := m.GetSwitchInfo()
 		if switchInfo.Path != "" {
-			// Format: path|branch|auto-claude|terminal-only|script-command
+			// Format: path|branch|auto-claude|terminal-only|script-command|session-name
 			autoCl := "false"
 			if switchInfo.AutoClaude {
 				autoCl = "true"
@@ -132,11 +132,12 @@ func main() {
 			if switchInfo.TerminalOnly {
 				termOnly = "true"
 			}
-			switchData := fmt.Sprintf("%s|%s|%s|%s|%s", switchInfo.Path, switchInfo.Branch, autoCl, termOnly, switchInfo.ScriptCommand)
+			switchData := fmt.Sprintf("%s|%s|%s|%s|%s|%s", switchInfo.Path, switchInfo.Branch, autoCl, termOnly, switchInfo.ScriptCommand, switchInfo.SessionName)
 
 			// Debug: log what we're writing
-			debugLog(fmt.Sprintf("DEBUG main: switchInfo={Path:%q Branch:%q AutoClaude:%v TerminalOnly:%v}", switchInfo.Path, switchInfo.Branch, switchInfo.AutoClaude, switchInfo.TerminalOnly))
-			debugLog(fmt.Sprintf("DEBUG main: switchData=%q", switchData))
+			debugLog(fmt.Sprintf("DEBUG main: switchInfo={Path:%q Branch:%q AutoClaude:%v TerminalOnly:%v SessionName:%q}", switchInfo.Path, switchInfo.Branch, switchInfo.AutoClaude, switchInfo.TerminalOnly, switchInfo.SessionName))
+			debugLog(fmt.Sprintf("DEBUG main: switchData=%q (has %d fields)", switchData, strings.Count(switchData, "|")+1))
+			fmt.Fprintf(os.Stderr, "DEBUG main: SessionName=%q\n", switchInfo.SessionName)
 
 			// Check if we should write to a file (for shell wrapper integration)
 			if switchFile := os.Getenv("GCOOL_SWITCH_FILE"); switchFile != "" {

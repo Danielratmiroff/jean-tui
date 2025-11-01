@@ -31,6 +31,23 @@ func NewManager() *Manager {
 	return &Manager{}
 }
 
+// SanitizeBranchName sanitizes a branch name for use as a git branch (without prefix)
+// This is useful when accepting user input for branch names
+func (m *Manager) SanitizeBranchName(branch string) string {
+	// Replace invalid characters with hyphens
+	reg := regexp.MustCompile(`[^a-zA-Z0-9\-_]`)
+	sanitized := reg.ReplaceAllString(branch, "-")
+
+	// Remove consecutive hyphens
+	reg = regexp.MustCompile(`-+`)
+	sanitized = reg.ReplaceAllString(sanitized, "-")
+
+	// Trim hyphens from start/end
+	sanitized = strings.Trim(sanitized, "-")
+
+	return sanitized
+}
+
 // SanitizeName sanitizes a branch name for use as a tmux session name
 // If isTerminal is true, appends "-terminal" suffix to differentiate from Claude sessions
 func (m *Manager) SanitizeName(branch string) string {
@@ -44,16 +61,8 @@ func (m *Manager) SanitizeNameTerminal(branch string) string {
 
 // sanitizeNameWithType is the internal implementation
 func (m *Manager) sanitizeNameWithType(branch string, isTerminal bool) string {
-	// Replace invalid characters with hyphens
-	reg := regexp.MustCompile(`[^a-zA-Z0-9\-_]`)
-	sanitized := reg.ReplaceAllString(branch, "-")
-
-	// Remove consecutive hyphens
-	reg = regexp.MustCompile(`-+`)
-	sanitized = reg.ReplaceAllString(sanitized, "-")
-
-	// Trim hyphens from start/end
-	sanitized = strings.Trim(sanitized, "-")
+	// Sanitize the base name first
+	sanitized := m.SanitizeBranchName(branch)
 
 	if isTerminal {
 		return sessionPrefix + sanitized + "-terminal"

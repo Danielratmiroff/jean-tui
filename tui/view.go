@@ -374,6 +374,8 @@ func (m Model) renderModal() string {
 	switch m.modal {
 	case createModal:
 		return m.renderCreateModal()
+	case createWithNameModal:
+		return m.renderCreateWithNameModal()
 	case deleteModal:
 		return m.renderDeleteModal()
 	case branchSelectModal:
@@ -460,6 +462,74 @@ func (m Model) renderCreateModal() string {
 
 	b.WriteString("\n\n")
 	b.WriteString(helpStyle.Render("Enter to confirm • Esc to cancel"))
+
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		modalStyle.Render(b.String()),
+	)
+}
+
+func (m Model) renderCreateWithNameModal() string {
+	var b strings.Builder
+
+	b.WriteString(modalTitleStyle.Render("Create New Worktree"))
+	b.WriteString("\n\n")
+
+	// Session name input (pre-filled with random name)
+	b.WriteString(inputLabelStyle.Render("Session Name:"))
+	b.WriteString("\n")
+
+	// Show focused or unfocused input
+	if m.modalFocused == 0 {
+		b.WriteString(m.sessionNameInput.View())
+	} else {
+		// When not focused, show the input value as plain text
+		inputValue := m.sessionNameInput.Value()
+		if inputValue == "" {
+			inputValue = m.sessionNameInput.Placeholder
+		}
+		b.WriteString(detailValueStyle.Render(inputValue))
+	}
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("(customize the name or use the default)"))
+	b.WriteString("\n\n")
+
+	// Show info about what will be created
+	sessionName := m.sessionNameInput.Value()
+	sanitizedName := m.sessionManager.SanitizeBranchName(sessionName)
+
+	b.WriteString(helpStyle.Render(fmt.Sprintf("Will create:")))
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render(fmt.Sprintf("  Branch: %s", sanitizedName)))
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render(fmt.Sprintf("  Claude session: --session %s", sanitizedName)))
+
+	// Show sanitization notice if name was changed
+	if sanitizedName != sessionName && sessionName != "" {
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render(fmt.Sprintf("  (sanitized from '%s')", sessionName)))
+	}
+	b.WriteString("\n\n")
+
+	// Buttons (Create and Cancel)
+	createBtn := "Create"
+	cancelBtn := "Cancel"
+
+	if m.modalFocused == 1 {
+		b.WriteString(selectedButtonStyle.Render(createBtn))
+	} else {
+		b.WriteString(buttonStyle.Render(createBtn))
+	}
+
+	if m.modalFocused == 2 {
+		b.WriteString(selectedCancelButtonStyle.Render(cancelBtn))
+	} else {
+		b.WriteString(cancelButtonStyle.Render(cancelBtn))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(helpStyle.Render("Tab to navigate • Enter to confirm • Esc to cancel"))
 
 	return lipgloss.Place(
 		m.width, m.height,

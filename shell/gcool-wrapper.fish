@@ -15,7 +15,7 @@ function gcool
 
         # Check if switch info was written
         if test -f "$temp_file" -a -s "$temp_file"
-            # Read the switch info: path|branch|auto-claude|terminal-only
+            # Read the switch info: path|branch|auto-claude|terminal-only|script-command|claude-session-name
             set switch_info (cat $temp_file)
             rm $temp_file
 
@@ -30,6 +30,10 @@ function gcool
                 set terminal_only "false"
                 if test (count $parts) -ge 4
                     set terminal_only $parts[4]
+                end
+                set claude_session_name ""
+                if test (count $parts) -ge 6
+                    set claude_session_name $parts[6]
                 end
 
                 # Check if tmux is available
@@ -75,7 +79,19 @@ function gcool
                         # Check if claude is available
                         if command -v claude &> /dev/null
                             # Start with claude in plan mode
-                            tmux new-session -s "$session_name" -c "$worktree_path" claude --permission-mode plan
+                            # Use --session flag for persistent sessions (use claude_session_name if provided, otherwise branch name)
+                            set claude_session "$claude_session_name"
+                            if test -z "$claude_session"
+                                set claude_session "$branch"
+                            end
+
+                            echo "DEBUG wrapper: Creating Claude session with --session flag" >&2
+                            echo "DEBUG wrapper: tmux_session_name=$session_name" >&2
+                            echo "DEBUG wrapper: branch=$branch" >&2
+                            echo "DEBUG wrapper: claude_session_name_provided=$claude_session_name" >&2
+                            echo "DEBUG wrapper: claude_session (final)=$claude_session" >&2
+                            echo "DEBUG wrapper: Command: tmux new-session -s '$session_name' -c '$worktree_path' claude --session '$claude_session' --permission-mode plan" >&2
+                            tmux new-session -s "$session_name" -c "$worktree_path" claude --session "$claude_session" --permission-mode plan
                         else
                             # Fallback: start with shell and show message
                             tmux new-session -s "$session_name" -c "$worktree_path"
