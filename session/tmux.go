@@ -17,6 +17,7 @@ const sessionPrefix = "gcool-"
 type Session struct {
 	Name         string
 	Branch       string
+	Path         string // Working directory of the session
 	Active       bool
 	Windows      int
 	LastActivity time.Time
@@ -286,11 +287,12 @@ func (m *Manager) NewWindowAndAttach(sessionName, path string) error {
 	return m.Attach(sessionName)
 }
 
-// List returns all gcool tmux sessions
-func (m *Manager) List() ([]Session, error) {
-	// List all sessions with format: name:windows:attached:activity
+// List returns all gcool tmux sessions, optionally filtered by repository path
+// If repoPath is empty string, returns all gcool sessions
+func (m *Manager) List(repoPath string) ([]Session, error) {
+	// List all sessions with format: name:windows:attached:activity:path
 	// activity is the maximum window_activity timestamp in the session
-	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}:#{session_activity}")
+	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}:#{session_activity}:#{session_path}")
 	output, err := cmd.Output()
 	if err != nil {
 		// No sessions exist
@@ -306,11 +308,18 @@ func (m *Manager) List() ([]Session, error) {
 		}
 
 		parts := strings.Split(line, ":")
-		if len(parts) < 4 {
+		if len(parts) < 5 {
 			continue
 		}
 
 		name := parts[0]
+		sessionPath := parts[4]
+
+		// Filter by repository path if provided
+		if repoPath != "" && !strings.HasPrefix(sessionPath, repoPath) {
+			continue
+		}
+
 		branch := strings.TrimPrefix(name, sessionPrefix)
 		active := parts[2] == "1"
 
@@ -329,6 +338,7 @@ func (m *Manager) List() ([]Session, error) {
 		sessions = append(sessions, Session{
 			Name:         name,
 			Branch:       branch,
+			Path:         sessionPath,
 			Active:       active,
 			Windows:      windows,
 			LastActivity: lastActivity,

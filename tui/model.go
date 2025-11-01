@@ -1256,9 +1256,9 @@ func (m Model) GetSwitchInfo() SwitchInfo {
 	return m.switchInfo
 }
 
-// loadSessions loads tmux sessions
+// loadSessions loads tmux sessions for the current repository only
 func (m Model) loadSessions() tea.Msg {
-	sessions, err := m.sessionManager.List()
+	sessions, err := m.sessionManager.List(m.repoPath)
 	if err != nil {
 		return statusMsg("Failed to load sessions")
 	}
@@ -1334,10 +1334,10 @@ func (m Model) animateRenameSpinner() tea.Cmd {
 	})
 }
 
-// checkSessionActivity checks for recent session activity
+// checkSessionActivity checks for recent session activity in current repository
 func (m Model) checkSessionActivity() tea.Cmd {
 	return func() tea.Msg {
-		sessions, err := m.sessionManager.List()
+		sessions, err := m.sessionManager.List(m.repoPath)
 		if err != nil {
 			return activityCheckedMsg{sessions: []session.Session{}, err: err}
 		}
