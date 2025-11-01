@@ -14,6 +14,10 @@ var (
 	mutedColor     = lipgloss.Color("#9CA3AF") // Coolify gray muted
 	bgColor        = lipgloss.Color("#0a0a0a") // Coolify near-black background
 	fgColor        = lipgloss.Color("#E5E5E5") // Coolify light gray text
+
+	// Claude status colors
+	readyColor = lipgloss.Color("#10B981") // Green - Claude is ready
+	busyColor  = lipgloss.Color("#FFC107") // Yellow/amber - Claude is busy
 )
 
 // Style variables - mutable, rebuilt by ApplyTheme()

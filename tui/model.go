@@ -223,6 +223,11 @@ type Model struct {
 	// Worktree switch state (for ensuring worktree exists before switching)
 	pendingSwitchInfo   *SwitchInfo // Info for pending switch (will be completed after ensure succeeds)
 	ensuringWorktree    bool        // Whether we're currently ensuring a worktree exists
+
+	// Claude status detection
+	claudeStatuses      map[string]session.ClaudeStatus // Status per session name
+	claudeStatusFrame   int                             // Current animation frame for spinner
+	statusDetectors     map[string]*session.StatusDetector // Status detectors per session
 }
 
 // NewModel creates a new TUI model
@@ -329,6 +334,8 @@ func NewModel(repoPath string, autoClaude bool) Model {
 		repoPath:           absoluteRepoPath,
 		editors:            editors,
 		availableThemes:    GetAvailableThemes(),
+		claudeStatuses:     make(map[string]session.ClaudeStatus),
+		statusDetectors:    make(map[string]*session.StatusDetector),
 	}
 
 	// Load AI settings from config
@@ -385,6 +392,8 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadBaseBranch(),
 		m.scheduleActivityCheck(),
+		m.scheduleClaudeStatusCheck(),
+		m.scheduleClaudeStatusAnimationTick(),
 		tea.EnterAltScreen,
 	)
 }
@@ -593,6 +602,13 @@ type (
 	worktreeEnsuredMsg struct {
 		err error
 	}
+
+	claudeStatusUpdatedMsg struct {
+		sessionName string
+		status      session.ClaudeStatus
+	}
+
+	claudeStatusTickMsg time.Time
 )
 
 // Commands
@@ -1530,4 +1546,38 @@ func (m Model) scheduleNotificationHide(id int64, duration time.Duration) tea.Cm
 			return notificationHideMsg{id: id}
 		}),
 	)
+}
+
+// scheduleClaudeStatusCheck schedules a periodic check of Claude status in active sessions
+func (m Model) scheduleClaudeStatusCheck() tea.Cmd {
+	return tea.Tick(1500*time.Millisecond, func(t time.Time) tea.Msg {
+		return claudeStatusTickMsg(t)
+	})
+}
+
+// scheduleClaudeStatusAnimationTick schedules animation frame updates for busy indicators
+func (m Model) scheduleClaudeStatusAnimationTick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
+
+// pollClaudeStatuses checks the status of all active Claude sessions
+func (m Model) pollClaudeStatuses() tea.Cmd {
+	return func() tea.Msg {
+		// Check each active session
+		for _, sess := range m.sessions {
+			// Create detector if it doesn't exist
+			if _, exists := m.statusDetectors[sess.Name]; !exists {
+				m.statusDetectors[sess.Name] = session.NewStatusDetector(sess.Name)
+			}
+
+			detector := m.statusDetectors[sess.Name]
+			status := detector.GetStatus()
+
+			// Update status map
+			m.claudeStatuses[sess.Name] = status
+		}
+		return nil
+	}
 }

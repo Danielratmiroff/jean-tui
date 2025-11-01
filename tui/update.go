@@ -915,7 +915,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prSpinnerFrame = (m.prSpinnerFrame + 1) % 10
 			return m, m.animateSpinner()
 		}
-		return m, nil
+		// Also handle Claude status animation frame
+		m.claudeStatusFrame = (m.claudeStatusFrame + 1) % 10
+		// Continue animation tick
+		return m, m.scheduleClaudeStatusAnimationTick()
 
 	case renameGeneratedMsg:
 		// Stop spinner and handle rename generation result
@@ -954,6 +957,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingSwitchInfo = nil
 			return m, tea.Quit
 		}
+
+	case claudeStatusTickMsg:
+		// Poll Claude status for all active sessions
+		m.pollClaudeStatuses()
+		// Schedule next check
+		return m, m.scheduleClaudeStatusCheck()
 	}
 
 	return m, cmd

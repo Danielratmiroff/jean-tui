@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/coollabsio/gcool/config"
+	"github.com/coollabsio/gcool/session"
 )
 
 // View renders the TUI
@@ -130,6 +131,22 @@ func (m Model) renderWorktreeList() string {
 			}
 		}
 
+		// Show Claude status indicator
+		sessionName := fmt.Sprintf("gcool-%s", wt.Branch)
+		if status, exists := m.claudeStatuses[sessionName]; exists {
+			var statusIndicator string
+			if status == session.StatusBusy {
+				// Animated spinner for busy state
+				spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+				frame := m.claudeStatusFrame % len(spinners)
+				statusIndicator = normalItemStyle.Copy().Foreground(busyColor).Render(" " + spinners[frame])
+			} else if status == session.StatusReady {
+				// Green dot for ready state
+				statusIndicator = normalItemStyle.Copy().Foreground(readyColor).Render(" ●")
+			}
+			line += statusIndicator
+		}
+
 		b.WriteString(style.Render(line))
 		b.WriteString("\n")
 	}
@@ -206,6 +223,24 @@ func (m Model) renderDetails() string {
 		b.WriteString(normalItemStyle.Copy().Foreground(warningColor).Render("  ● Uncommitted changes"))
 		b.WriteString("\n")
 		b.WriteString(normalItemStyle.Copy().Foreground(accentColor).Render("  Press 'c' to commit"))
+		b.WriteString("\n")
+	}
+
+	// Show Claude status
+	sessionName := fmt.Sprintf("gcool-%s", wt.Branch)
+	if status, exists := m.claudeStatuses[sessionName]; exists {
+		b.WriteString("\n")
+		b.WriteString(detailKeyStyle.Render("Claude Status:"))
+		b.WriteString("\n")
+		if status == session.StatusBusy {
+			spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+			frame := m.claudeStatusFrame % len(spinners)
+			statusText := normalItemStyle.Copy().Foreground(busyColor).Render(fmt.Sprintf("  %s Busy", spinners[frame]))
+			b.WriteString(statusText)
+		} else if status == session.StatusReady {
+			statusText := normalItemStyle.Copy().Foreground(readyColor).Render("  ● Ready")
+			b.WriteString(statusText)
+		}
 		b.WriteString("\n")
 	}
 
