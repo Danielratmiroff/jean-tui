@@ -1404,10 +1404,19 @@ func (m Model) refreshWithPull() tea.Cmd {
 			branch := selected.Branch
 			if branch != "" {
 				// Pull from the remote tracking branch to get latest commits
-				if err := m.gitManager.PullCurrentBranch(m.repoPath, branch); err != nil {
+				output, err := m.gitManager.PullCurrentBranchWithOutput(m.repoPath, branch)
+				if err != nil {
 					// Pull failed, but fetch succeeded - don't fail the refresh
 					// User can see the behind count and manually pull if needed
 					msg.pullErr = err
+				} else {
+					// Parse the output to extract commit count
+					// ParsePullOutput returns (isUpToDate bool, commitCount int)
+					isUpToDate, commitCount := m.gitManager.ParsePullOutput(output)
+					if !isUpToDate && commitCount > 0 {
+						msg.updatedBranches[branch] = commitCount
+						msg.upToDate = false
+					}
 				}
 			}
 		}
