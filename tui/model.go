@@ -332,6 +332,7 @@ func NewModel(repoPath string, autoClaude bool) Model {
 		"anthropic/claude-3-opus",
 		"openai/gpt-4-turbo",
 		"openai/gpt-4",
+		"openai/gpt-4o-mini",
 		"meta-llama/llama-2-70b-chat",
 	}
 
