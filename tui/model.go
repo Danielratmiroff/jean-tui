@@ -686,6 +686,13 @@ type (
 	}
 
 	claudeStatusTickMsg time.Time
+
+	claudeStatusesUpdatedMsg struct {
+		sessions        []session.Session
+		statuses        map[string]session.ClaudeStatus
+		statusDetectors map[string]*session.StatusDetector
+		err             error
+	}
 )
 
 // Commands
@@ -1895,21 +1902,44 @@ func (m Model) scheduleClaudeStatusAnimationTick() tea.Cmd {
 
 // pollClaudeStatuses checks the status of all active Claude sessions
 func (m Model) pollClaudeStatuses() tea.Cmd {
+	// Capture the current detectors map to use in the command
+	detectors := m.statusDetectors
+
 	return func() tea.Msg {
+		// First, get fresh list of active sessions
+		sessions, err := m.sessionManager.List(m.repoPath)
+		if err != nil {
+			return claudeStatusesUpdatedMsg{
+				sessions:        []session.Session{},
+				statuses:        make(map[string]session.ClaudeStatus),
+				statusDetectors: detectors,
+				err:             err,
+			}
+		}
+
+		// Create status map to return
+		statuses := make(map[string]session.ClaudeStatus)
+
 		// Check each active session
-		for _, sess := range m.sessions {
-			// Create detector if it doesn't exist
-			if _, exists := m.statusDetectors[sess.Name]; !exists {
-				m.statusDetectors[sess.Name] = session.NewStatusDetector(sess.Name)
+		for _, sess := range sessions {
+			// Get or create detector for this session
+			detector, exists := detectors[sess.Name]
+			if !exists {
+				detector = session.NewStatusDetector(sess.Name)
+				detectors[sess.Name] = detector
 			}
 
-			detector := m.statusDetectors[sess.Name]
+			// Get current status from detector
 			status := detector.GetStatus()
-
-			// Update status map
-			m.claudeStatuses[sess.Name] = status
+			statuses[sess.Name] = status
 		}
-		return nil
+
+		return claudeStatusesUpdatedMsg{
+			sessions:        sessions,
+			statuses:        statuses,
+			statusDetectors: detectors,
+			err:             nil,
+		}
 	}
 }
 

@@ -1184,9 +1184,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case claudeStatusTickMsg:
 		// Poll Claude status for all active sessions
-		m.pollClaudeStatuses()
+		cmd = m.pollClaudeStatuses()
+		return m, cmd
+
+	case claudeStatusesUpdatedMsg:
+		if msg.err == nil {
+			// Update sessions, statuses, and detectors from the poll
+			m.sessions = msg.sessions
+			m.claudeStatuses = msg.statuses
+			m.statusDetectors = msg.statusDetectors
+		}
 		// Schedule next check
-		return m, m.scheduleClaudeStatusCheck()
+		cmd = m.scheduleClaudeStatusCheck()
+		return m, cmd
 
 	case prMarkedReadyMsg:
 		// PR has been marked as ready for review
