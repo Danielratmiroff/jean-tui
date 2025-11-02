@@ -401,8 +401,22 @@ func (m *Manager) List(repoPath string) ([]Session, error) {
 	return sessions, nil
 }
 
-// Kill terminates a tmux session
+// Kill terminates a tmux session and all its windows
 func (m *Manager) Kill(sessionName string) error {
+	// First, explicitly kill all windows in the session
+	// This ensures both the terminal and claude windows are destroyed
+	killWindowsCmd := exec.Command("tmux", "kill-window", "-a", "-t", sessionName+":1")
+	killWindowsCmd.Run() // Ignore errors - windows might not exist
+
+	// Kill window 1 (terminal)
+	killWindow1 := exec.Command("tmux", "kill-window", "-t", sessionName+":1")
+	killWindow1.Run() // Ignore errors
+
+	// Kill window 2 (claude)
+	killWindow2 := exec.Command("tmux", "kill-window", "-t", sessionName+":2")
+	killWindow2.Run() // Ignore errors
+
+	// Finally, kill the entire session
 	cmd := exec.Command("tmux", "kill-session", "-t", sessionName)
 	return cmd.Run()
 }
