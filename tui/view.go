@@ -893,6 +893,24 @@ func (m Model) renderRenameModal() string {
 	b.WriteString(inputStyle.Render(m.nameInput.View()))
 	b.WriteString("\n\n")
 
+	// Show sanitization preview
+	newName := m.nameInput.Value()
+	sanitizedName := m.sessionManager.SanitizeBranchName(newName)
+
+	if newName != "" {
+		b.WriteString(helpStyle.Render("Will rename to:"))
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render(fmt.Sprintf("  Branch: %s", sanitizedName)))
+		b.WriteString("\n")
+
+		// Show sanitization notice if name was changed
+		if sanitizedName != newName {
+			b.WriteString(helpStyle.Render(fmt.Sprintf("  (sanitized from '%s')", newName)))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
 	// Spinner or status message
 	if m.generatingRename {
 		// Show spinner animation while generating
@@ -912,7 +930,7 @@ func (m Model) renderRenameModal() string {
 	// AI hint
 	hasAIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
 	if hasAIKey {
-		b.WriteString(helpStyle.Render("💡 Press 'g' to generate branch name from changes"))
+		b.WriteString(helpStyle.Render("🤖 Press 'g' to generate branch name from changes"))
 		b.WriteString("\n\n")
 	}
 
@@ -1084,7 +1102,7 @@ func (m Model) renderCommitModal() string {
 		// Show spinner animation while generating
 		spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		spinner := spinnerFrames[m.spinnerFrame%10]
-		b.WriteString(statusStyle.Render(spinner + " 🤖 Generating commit message with AI..."))
+		b.WriteString(statusStyle.Render(spinner + " 🤖 Generating commit message..."))
 		b.WriteString("\n\n")
 	} else if m.commitModalStatus != "" {
 		if strings.Contains(m.commitModalStatus, "❌") {
@@ -1171,7 +1189,7 @@ func (m Model) renderPRContentModal() string {
 		// Show spinner animation while generating
 		spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		spinner := spinnerFrames[m.prSpinnerFrame%10]
-		b.WriteString(statusStyle.Render(spinner + " Generating PR content with AI..."))
+		b.WriteString(statusStyle.Render(spinner + "🤖 Generating PR content..."))
 		b.WriteString("\n\n")
 	}
 
@@ -1944,7 +1962,6 @@ func (m Model) renderHelperModal() string {
 				{"s", "Open settings"},
 				{"e", "Select default editor"},
 				{"S", "View tmux sessions"},
-				{"g", "Generate branch name (with AI) — in new worktree modal"},
 				{"h", "Show this help"},
 				{"q", "Quit application"},
 			},
