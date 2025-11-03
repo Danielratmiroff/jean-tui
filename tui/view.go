@@ -1674,7 +1674,7 @@ func (m Model) renderAISettingsModal() string {
 	return lipgloss.Place(
 		m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
-		modalStyle.Render(b.String()),
+		modalStyle.Width(120).Render(b.String()),
 	)
 }
 
