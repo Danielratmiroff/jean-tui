@@ -1354,11 +1354,11 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			// Store pending switch info and ensure worktree exists
-			// SessionName is the branch name (used for persistent Claude sessions)
+			// SessionName includes repo basename for uniqueness across repositories (e.g., gcool-reponame-branch)
 			m.pendingSwitchInfo = &SwitchInfo{
 				Path:                 wt.Path,
 				Branch:               wt.Branch,
-				SessionName:          wt.Branch, // Use branch name as session name for Claude
+				SessionName:          wt.ClaudeSessionName, // Pre-sanitized session name with repo basename
 				AutoClaude:           m.autoClaude,
 				TargetWindow:         "claude", // Attach to Claude window
 				IsClaudeInitialized:  isInitialized,
@@ -1420,7 +1420,7 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pendingSwitchInfo = &SwitchInfo{
 				Path:         wt.Path,
 				Branch:       wt.Branch,
-				SessionName:  wt.Branch,                // Use branch name as session identifier
+				SessionName:  wt.ClaudeSessionName,     // Pre-sanitized session name with repo basename
 				AutoClaude:   false,                    // Never auto-start Claude for terminal window
 				TargetWindow: "terminal",               // Attach to terminal window
 			}

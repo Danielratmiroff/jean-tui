@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -684,8 +685,9 @@ func (m Model) loadWorktrees() tea.Cmd {
 	return func() tea.Msg {
 		worktrees, err := m.gitManager.List(m.baseBranch)
 		// Calculate sanitized Claude session names for each worktree
+		repoName := filepath.Base(m.repoPath)
 		for i := range worktrees {
-			worktrees[i].ClaudeSessionName = m.sessionManager.SanitizeName(worktrees[i].Branch)
+			worktrees[i].ClaudeSessionName = m.sessionManager.SanitizeName(repoName, worktrees[i].Branch)
 		}
 		return worktreesLoadedMsg{worktrees: worktrees, err: err}
 	}
@@ -695,8 +697,9 @@ func (m Model) loadWorktreesLightweight() tea.Cmd {
 	return func() tea.Msg {
 		worktrees, err := m.gitManager.ListLightweight()
 		// Calculate sanitized Claude session names for each worktree
+		repoName := filepath.Base(m.repoPath)
 		for i := range worktrees {
-			worktrees[i].ClaudeSessionName = m.sessionManager.SanitizeName(worktrees[i].Branch)
+			worktrees[i].ClaudeSessionName = m.sessionManager.SanitizeName(repoName, worktrees[i].Branch)
 		}
 		return worktreesLoadedMsg{worktrees: worktrees, err: err}
 	}
@@ -802,7 +805,8 @@ func (m Model) deleteWorktree(path, branch string, force bool) tea.Cmd {
 		}
 
 		// Then kill the associated tmux session if it exists
-		sessionName := m.sessionManager.SanitizeName(branch)
+		repoName := filepath.Base(m.repoPath)
+		sessionName := m.sessionManager.SanitizeName(repoName, branch)
 		_ = m.sessionManager.Kill(sessionName) // Ignore error if session doesn't exist
 
 		return worktreeDeletedMsg{err: nil}
@@ -858,9 +862,10 @@ func (m Model) renameBranch(oldName, newName string) tea.Cmd {
 
 func (m Model) renameSessionsForBranch(oldBranch, newBranch string) tea.Cmd {
 	return func() tea.Msg {
-		// Sanitize both branch names for session names
-		oldSessionName := m.sessionManager.SanitizeName(oldBranch)
-		newSessionName := m.sessionManager.SanitizeName(newBranch)
+		// Sanitize both branch names for session names (including repo basename)
+		repoName := filepath.Base(m.repoPath)
+		oldSessionName := m.sessionManager.SanitizeName(repoName, oldBranch)
+		newSessionName := m.sessionManager.SanitizeName(repoName, newBranch)
 
 		// Rename session
 		if err := m.sessionManager.RenameSession(oldSessionName, newSessionName); err != nil {

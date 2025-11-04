@@ -48,11 +48,19 @@ func (m *Manager) SanitizeBranchName(branch string) string {
 	return sanitized
 }
 
-// SanitizeName sanitizes a branch name for use as a tmux session name
-func (m *Manager) SanitizeName(branch string) string {
-	// Sanitize the base name first
-	sanitized := m.SanitizeBranchName(branch)
-	return sessionPrefix + sanitized
+// SanitizeName sanitizes a repo name and branch name for use as a tmux session name
+// Format: gcool-<repo>-<branch>
+func (m *Manager) SanitizeName(repoName, branch string) string {
+	// Sanitize both repo name and branch name
+	sanitizedRepo := m.SanitizeBranchName(repoName)
+	sanitizedBranch := m.SanitizeBranchName(branch)
+
+	// Combine with repo name for uniqueness across repositories
+	if sanitizedRepo != "" {
+		return sessionPrefix + sanitizedRepo + "-" + sanitizedBranch
+	}
+	// Fallback if repo name is empty (shouldn't happen)
+	return sessionPrefix + sanitizedBranch
 }
 
 // SessionExists checks if a tmux session with the given name exists
@@ -78,11 +86,12 @@ func (m *Manager) buildClaudeCommand(isInitialized bool) string {
 	return "claude --permission-mode plan"
 }
 
-// CreateOrAttach creates a new session or attaches to existing one
+// createOrAttach creates a new session or attaches to existing one
 // targetWindow specifies which window to attach to: "terminal" (window 0) or "claude" (window 1)
 // Always creates both windows when creating a new session
-func (m *Manager) CreateOrAttach(path, branch string, autoStartClaude bool, targetWindow string) error {
-	sessionName := m.SanitizeName(branch)
+// Deprecated: Use session switching via the TUI instead
+func (m *Manager) createOrAttach(path, branch, repoName string, autoStartClaude bool, targetWindow string) error {
+	sessionName := m.SanitizeName(repoName, branch)
 
 	if m.SessionExists(sessionName) {
 		// Session exists - ensure target window exists, create if missing
@@ -226,15 +235,15 @@ set -g renumber-windows on
 # Ctrl-D to detach
 bind-key -n C-d detach-client
 
-# Navigate between windows with Ctrl+arrows
-bind-key -n C-Right next-window
-bind-key -n C-Left previous-window
+# Navigate between windows with Shift+arrows
+bind-key -n S-Right next-window
+bind-key -n S-Left previous-window
 
 # Status bar styling (minimal)
 set -g status-style bg=default,fg=white
 set -g status-left-length 40
 set -g status-right-length 60
-set -g status-left "#[fg=green]gcool:#[fg=cyan]#S "
+set -g status-left "#[fg=green]gcool@#[fg=cyan]#(echo '#S' | sed 's/^gcool-\\([^-]*\\)-\\(.*\\)/\\1:\\2/') "
 set -g status-right "#[fg=yellow]%H:%M #[fg=white]%d-%b-%y"
 
 # Pane border colors

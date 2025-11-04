@@ -64,11 +64,17 @@ gcool() {
                 return
             fi
 
-            # Sanitize branch name for tmux session
-            local session_name="gcool-${branch//[^a-zA-Z0-9\-_]/-}"
-            session_name="${session_name//--/-}"
-            session_name="${session_name#-}"
-            session_name="${session_name%-}"
+            # Use the pre-sanitized session name from gcool (includes repo basename)
+            # Format: gcool-<repo>-<branch>
+            local session_name="$claude_session_name"
+
+            # If session name is empty (older version or fallback), generate it from branch
+            if [ -z "$session_name" ]; then
+                session_name="gcool-${branch//[^a-zA-Z0-9\-_]/-}"
+                session_name="${session_name//--/-}"
+                session_name="${session_name#-}"
+                session_name="${session_name%-}"
+            fi
 
             # Check if already in a tmux session and if it's the same session we want
             if [ -n "$TMUX" ]; then
@@ -219,10 +225,16 @@ function gcool
                     return
                 end
 
-                # Sanitize branch name for tmux session
-                set session_name "gcool-"(string replace -ra '[^a-zA-Z0-9\-_]' '-' $branch)
-                set session_name (string replace -ra '--+' '-' $session_name)
-                set session_name (string trim -c '-' $session_name)
+                # Use the pre-sanitized session name from gcool (includes repo basename)
+                # Format: gcool-<repo>-<branch>
+                set session_name "$claude_session_name"
+
+                # If session name is empty (older version or fallback), generate it from branch
+                if test -z "$session_name"
+                    set session_name "gcool-"(string replace -ra '[^a-zA-Z0-9\-_]' '-' $branch)
+                    set session_name (string replace -ra '--+' '-' $session_name)
+                    set session_name (string trim -c '-' $session_name)
+                end
 
                 # Check if already in a tmux session
                 if test -n "$TMUX"

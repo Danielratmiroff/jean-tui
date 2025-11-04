@@ -817,7 +817,7 @@ func (m Model) renderSessionListModal() string {
 	b.WriteString("\n\n")
 
 	if len(m.sessions) == 0 {
-		b.WriteString(normalItemStyle.Render("No active gwt sessions found"))
+		b.WriteString(normalItemStyle.Render("No active sessions found"))
 		b.WriteString("\n\n")
 		b.WriteString(helpStyle.Render("Press Esc to close"))
 	} else {
