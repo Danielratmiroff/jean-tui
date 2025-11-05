@@ -17,7 +17,7 @@ import (
 	"github.com/coollabsio/jean/tui"
 )
 
-const version = "0.1.3"
+const version = "0.1.4"
 
 // Global flag for debug logging (set after config is loaded)
 var debugLoggingEnabled bool = false
