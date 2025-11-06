@@ -393,6 +393,8 @@ func (m Model) renderModal() string {
 		return m.renderAISettingsModal()
 	case aiPromptsModal:
 		return m.renderAIPromptsModal()
+	case prStateSettingsModal:
+		return m.renderPRStateSettingsModal()
 	case tmuxConfigModal:
 		return m.renderTmuxConfigModal()
 	case themeSelectModal:
@@ -403,8 +405,6 @@ func (m Model) renderModal() string {
 		return m.renderPRContentModal()
 	case prListModal:
 		return m.renderPRListModal()
-	case prTypeModal:
-		return m.renderPRTypeModal()
 	case mergeStrategyModal:
 		return m.renderMergeStrategyModal()
 	case helperModal:
@@ -1561,6 +1561,21 @@ func (m Model) renderSettingsModal() string {
 				return "Disabled"
 			},
 		},
+		{
+			name:        "PR Default State",
+			key:         "p",
+			description: "Default state for new pull requests (draft or ready for review)",
+			getCurrent: func() string {
+				if m.configManager != nil {
+					state := m.configManager.GetPRDefaultState(m.repoPath)
+					if state == "draft" {
+						return "Draft"
+					}
+					return "Ready for Review"
+				}
+				return "Ready for Review"
+			},
+		},
 	}
 
 	// Render settings list
@@ -1712,6 +1727,52 @@ func (m Model) renderAISettingsModal() string {
 		m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
 		modalStyle.Width(120).Render(b.String()),
+	)
+}
+
+func (m Model) renderPRStateSettingsModal() string {
+	var b strings.Builder
+
+	b.WriteString(modalTitleStyle.Render("PR Default State"))
+	b.WriteString("\n\n")
+
+	// PR state options
+	prStates := []struct {
+		name        string
+		description string
+	}{
+		{"Draft", "Create pull requests in draft state (not ready for review)"},
+		{"Ready for Review", "Create pull requests ready for review (default)"},
+	}
+
+	for i, prState := range prStates {
+		isSelected := i == m.prStateSettingsCursor
+
+		var prStateText string
+		if isSelected {
+			prStateText = selectedItemStyle.Render("▶ " + prState.name)
+		} else {
+			prStateText = normalItemStyle.Render("  " + prState.name)
+		}
+
+		b.WriteString(prStateText)
+		b.WriteString("\n")
+
+		// Add description
+		descStyle := normalItemStyle.Copy().Foreground(mutedColor)
+		b.WriteString(descStyle.Render("  " + prState.description))
+		b.WriteString("\n\n")
+	}
+
+	// Help text
+	b.WriteString(helpStyle.Render("↑/↓ select • enter confirm • esc cancel"))
+
+	// Center the modal
+	content := modalStyle.Width(m.width - 4).Render(b.String())
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		content,
 	)
 }
 
@@ -2298,52 +2359,6 @@ func (m Model) renderMergeStrategyModal() string {
 		// Add description
 		descStyle := normalItemStyle.Copy().Foreground(mutedColor)
 		b.WriteString(descStyle.Render("  " + strategy.description))
-		b.WriteString("\n\n")
-	}
-
-	// Help text
-	b.WriteString(helpStyle.Render("↑/↓ select • enter confirm • esc cancel"))
-
-	// Center the modal
-	content := modalStyle.Width(m.width - 4).Render(b.String())
-	return lipgloss.Place(
-		m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		content,
-	)
-}
-
-func (m Model) renderPRTypeModal() string {
-	var b strings.Builder
-
-	b.WriteString(modalTitleStyle.Render("Select Pull Request Type"))
-	b.WriteString("\n\n")
-
-	// PR type options with descriptions
-	prTypes := []struct {
-		name        string
-		description string
-	}{
-		{"Draft PR", "Create as draft (not ready for review)"},
-		{"Ready for review", "Create as ready for review (default)"},
-	}
-
-	for i, prType := range prTypes {
-		isSelected := i == m.prTypeCursor
-
-		var prTypeText string
-		if isSelected {
-			prTypeText = selectedItemStyle.Render("▶ " + prType.name)
-		} else {
-			prTypeText = normalItemStyle.Render("  " + prType.name)
-		}
-
-		b.WriteString(prTypeText)
-		b.WriteString("\n")
-
-		// Add description
-		descStyle := normalItemStyle.Copy().Foreground(mutedColor)
-		b.WriteString(descStyle.Render("  " + prType.description))
 		b.WriteString("\n\n")
 	}
 

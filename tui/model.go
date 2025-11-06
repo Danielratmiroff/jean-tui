@@ -81,7 +81,7 @@ const (
 	createWithNameModal
 	mergeStrategyModal
 	aiPromptsModal
-	prTypeModal
+	prStateSettingsModal
 	onboardingModal
 	gitInitModal
 )
@@ -236,9 +236,9 @@ type Model struct {
 	prSearchInput  textinput.Model      // Search input for PR filtering
 	prLoadingError string               // Error message when loading PRs
 
-	// PR type modal state
-	prTypeCursor int  // Selected PR type (0=draft, 1=ready for review)
-	prIsDraft    bool // Whether to create PR as draft (based on user selection)
+	// PR state settings modal state
+	prStateSettingsCursor int // Selected PR state (0=draft, 1=ready for review)
+	prIsDraft    bool // Whether to create PR as draft (based on config setting)
 
 	// Scripts modal state
 	scriptConfig       *config.ScriptConfig   // Loaded script configuration
@@ -397,7 +397,7 @@ func NewModel(repoPath string, autoClaude bool) Model {
 		repoPath:           absoluteRepoPath,
 		editors:            editors,
 		availableThemes:    GetAvailableThemes(),
-		prTypeCursor:       1, // Default to "Ready for review" (index 1)
+		prStateSettingsCursor: 1, // Default to "Ready for review" (index 1)
 		isInitializing: true,
 	}
 

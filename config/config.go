@@ -48,6 +48,7 @@ type RepoConfig struct {
 	Editor             string            `json:"editor,omitempty"`
 	AutoFetchInterval  int               `json:"auto_fetch_interval,omitempty"` // in seconds, 0 = use default (10s)
 	Theme              string            `json:"theme,omitempty"`               // Per-repo theme override, "" = use global default
+	PRDefaultState     string            `json:"pr_default_state,omitempty"`    // "draft" or "ready", "" = use default (ready)
 	PRs                map[string][]PRInfo `json:"prs,omitempty"`                 // branch -> list of PRs
 	InitializedClaudes map[string]bool   `json:"initialized_claudes,omitempty"` // branch -> whether Claude has been started
 }
@@ -573,5 +574,30 @@ func (m *Manager) IsOnboarded() bool {
 // SetOnboarded marks the onboarding flow as completed
 func (m *Manager) SetOnboarded() error {
 	m.config.Onboarded = true
+	return m.save()
+}
+
+// GetPRDefaultState returns the default PR state for a repository
+// Returns "draft" or "ready", defaults to "ready" if not set
+func (m *Manager) GetPRDefaultState(repoPath string) string {
+	if repo, ok := m.config.Repositories[repoPath]; ok {
+		if repo.PRDefaultState == "draft" || repo.PRDefaultState == "ready" {
+			return repo.PRDefaultState
+		}
+	}
+	return "ready" // Default to "ready for review"
+}
+
+// SetPRDefaultState sets the default PR state for a repository
+func (m *Manager) SetPRDefaultState(repoPath, state string) error {
+	if m.config.Repositories == nil {
+		m.config.Repositories = make(map[string]*RepoConfig)
+	}
+
+	if _, ok := m.config.Repositories[repoPath]; !ok {
+		m.config.Repositories[repoPath] = &RepoConfig{}
+	}
+
+	m.config.Repositories[repoPath].PRDefaultState = state
 	return m.save()
 }

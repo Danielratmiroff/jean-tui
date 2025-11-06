@@ -646,14 +646,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd = m.showInfoNotification("🤖 Generating semantic branch name...")
 					return m, tea.Batch(cmd, m.generateBranchNameForPR(m.prCreationPending, branch, m.baseBranch))
 				} else {
-					// No AI rename needed - show PR type selection modal
-					m.modal = prTypeModal
+					// No AI rename needed - use default PR state from config
+					prState := m.configManager.GetPRDefaultState(m.repoPath)
+					m.prIsDraft = (prState == "draft")
 					m.prModalWorktreePath = m.prCreationPending
 					m.prModalBranch = branch
-					m.prTypeCursor = 1 // Default to "Ready for review"
 					m.commitBeforePR = false
 					m.prCreationPending = ""
-					return m, m.showSuccessNotification("Committed successfully. Select PR type:", 2*time.Second)
+
+					// Check if AI is enabled for PR content generation
+					aiEnabled := m.configManager != nil &&
+						m.configManager.GetOpenRouterAPIKey() != "" &&
+						m.aiCommitEnabled
+
+					if aiEnabled {
+						// Generate PR content with AI
+						cmd := m.showSuccessNotification("Committed successfully. Generating PR content...", 2*time.Second)
+						return m, tea.Batch(cmd, m.generatePRContent(m.prModalWorktreePath, m.prModalBranch, m.baseBranch))
+					}
+
+					// No AI - open PR content modal for manual input
+					m.modal = prContentModal
+					m.prModalFocused = 0
+					m.prTitleInput.Focus()
+					m.prDescriptionInput.Blur()
+					return m, m.showSuccessNotification("Committed successfully. Enter PR details:", 2*time.Second)
 				}
 			}
 
@@ -713,11 +730,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.showInfoNotification("🤖 Generating semantic branch name...")
 			return m, tea.Batch(cmd, m.generateBranchNameForPR(msg.worktreePath, msg.branch, m.baseBranch))
 		} else {
-			// No AI rename needed - show PR type selection modal
-			m.modal = prTypeModal
+			// No AI rename needed - use default PR state from config
+			prState := m.configManager.GetPRDefaultState(m.repoPath)
+			m.prIsDraft = (prState == "draft")
 			m.prModalWorktreePath = msg.worktreePath
 			m.prModalBranch = msg.branch
-			m.prTypeCursor = 1 // Default to "Ready for review"
+
+			// Check if AI is enabled for PR content generation
+			aiEnabled := m.configManager != nil &&
+				m.configManager.GetOpenRouterAPIKey() != "" &&
+				m.aiCommitEnabled
+
+			if aiEnabled {
+				// Generate PR content with AI
+				return m, m.generatePRContent(m.prModalWorktreePath, m.prModalBranch, m.baseBranch)
+			}
+
+			// No AI - open PR content modal for manual input
+			m.modal = prContentModal
+			m.prModalFocused = 0
+			m.prTitleInput.Focus()
+			m.prDescriptionInput.Blur()
 			return m, nil
 		}
 
@@ -1181,11 +1214,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prCreationPending = wt.Path // Set to trigger PR creation after rename
 				return m, tea.Batch(cmd, m.generateBranchNameForPush(wt.Path, wt.Branch, m.baseBranch))
 			} else {
-				// No AI rename needed - show PR type selection modal first
-				m.modal = prTypeModal
+				// No AI rename needed - use default PR state from config
+				prState := m.configManager.GetPRDefaultState(m.repoPath)
+				m.prIsDraft = (prState == "draft")
 				m.prModalWorktreePath = wt.Path
 				m.prModalBranch = wt.Branch
-				m.prTypeCursor = 1 // Default to "Ready for review"
+
+				// Check if AI is enabled for PR content generation
+				aiEnabled := m.configManager != nil &&
+					m.configManager.GetOpenRouterAPIKey() != "" &&
+					m.aiCommitEnabled
+
+				if aiEnabled {
+					// Generate PR content with AI
+					return m, m.generatePRContent(m.prModalWorktreePath, m.prModalBranch, m.baseBranch)
+				}
+
+				// No AI - open PR content modal for manual input
+				m.modal = prContentModal
+				m.prModalFocused = 0
+				m.prTitleInput.Focus()
+				m.prDescriptionInput.Blur()
 				return m, nil
 			}
 		}
@@ -1860,8 +1909,6 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case prListModal:
 		return m.handlePRListModalInput(msg)
 
-	case prTypeModal:
-		return m.handlePRTypeModalInput(msg)
 
 	case mergeStrategyModal:
 		return m.handleMergeStrategyModalInput(msg)
@@ -1874,6 +1921,9 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case aiPromptsModal:
 		return m.handleAIPromptsModalInput(msg)
+
+	case prStateSettingsModal:
+		return m.handlePRStateSettingsModalInput(msg)
 
 	case onboardingModal:
 		return m.handleOnboardingModalInput(msg)
@@ -2953,7 +3003,7 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down":
-		if m.settingsIndex < 5 { // Now 6 settings (editor, theme, base branch, tmux config, AI integration, debug logs)
+		if m.settingsIndex < 6 { // Now 7 settings (editor, theme, base branch, tmux config, AI integration, debug logs, PR default state)
 			m.settingsIndex++
 		}
 
@@ -2990,6 +3040,12 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		// Quick key for Debug Logs
 		m.settingsIndex = 5
+		msg = tea.KeyMsg{Type: tea.KeyEnter}
+		return m.handleSettingsModalInput(msg)
+
+	case "p":
+		// Quick key for PR Default State
+		m.settingsIndex = 6
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
 		return m.handleSettingsModalInput(msg)
 
@@ -3079,6 +3135,74 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+
+		case 6:
+			// PR Default State setting - open PR state settings modal
+			m.modal = prStateSettingsModal
+			m.prStateSettingsCursor = 0
+
+			// Set cursor to current setting
+			if m.configManager != nil {
+				prState := m.configManager.GetPRDefaultState(m.repoPath)
+				if prState == "draft" {
+					m.prStateSettingsCursor = 0
+				} else {
+					m.prStateSettingsCursor = 1
+				}
+			}
+			return m, nil
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handlePRStateSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		// Close PR state settings modal and return to settings
+		m.modal = settingsModal
+		m.settingsIndex = 6 // Go back to PR Default State option in settings
+		return m, nil
+
+	case "up":
+		if m.prStateSettingsCursor > 0 {
+			m.prStateSettingsCursor--
+		}
+		return m, nil
+
+	case "down":
+		if m.prStateSettingsCursor < 1 {
+			m.prStateSettingsCursor++
+		}
+		return m, nil
+
+	case "enter":
+		// User confirmed PR state selection
+		var newState string
+		if m.prStateSettingsCursor == 0 {
+			newState = "draft"
+		} else {
+			newState = "ready"
+		}
+
+		// Save to config
+		if m.configManager != nil {
+			if err := m.configManager.SetPRDefaultState(m.repoPath, newState); err != nil {
+				cmd := m.showErrorNotification("Failed to save PR default state: "+err.Error(), 3*time.Second)
+				return m, cmd
+			}
+		}
+
+		// Close modal and return to settings
+		m.modal = settingsModal
+		m.settingsIndex = 6
+
+		// Show success notification
+		if newState == "draft" {
+			return m, m.showSuccessNotification("PR default state set to Draft", 2*time.Second)
+		} else {
+			return m, m.showSuccessNotification("PR default state set to Ready for Review", 2*time.Second)
 		}
 	}
 
