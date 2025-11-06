@@ -2329,8 +2329,7 @@ func (m Model) handleSessionListModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			return m, nil
 		},
 		onCancel: func(m Model) (tea.Model, tea.Cmd) {
-			// Clear notifications when closing modal to avoid lingering messages
-			m.notification = nil
+			// Close modal without clearing notifications - let them auto-clear via timer
 			m.modal = noModal
 			return m, nil
 		},
@@ -2339,11 +2338,13 @@ func (m Model) handleSessionListModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 				// Kill selected session
 				sess := m.sessions[m.sessionIndex]
 				if err := m.sessionManager.Kill(sess.Name); err != nil {
-					m.showErrorNotification("Failed to kill session", 3*time.Second)
+					return m, m.showErrorNotification("Failed to kill session", 3*time.Second)
 				} else {
-					m.showSuccessNotification("Session killed", 3*time.Second)
-					// Reload sessions
-					return m, m.loadSessions()
+					// Batch notification with session reload
+					return m, tea.Batch(
+						m.showSuccessNotification("Session killed", 3*time.Second),
+						m.loadSessions(),
+					)
 				}
 			}
 			return m, nil

@@ -202,8 +202,8 @@ const jeanTmuxConfig = `
 # WARNING: Do not modify the marker lines above/below - they are used for automatic updates
 # You can safely delete this entire section if you no longer want these settings
 
-# Disable mouse support completely
-set -g mouse off
+# Enable mouse support for scrolling and selection
+set -g mouse on
 
 # Enable clickable links (URLs and local filesystem paths)
 set -g allow-passthrough on

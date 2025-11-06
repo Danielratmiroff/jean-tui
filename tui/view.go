@@ -18,7 +18,13 @@ func (m Model) View() string {
 
 	// Show modal if active
 	if m.modal != noModal {
-		return m.renderModal()
+		modalContent := m.renderModal()
+		// Apply notification overlay if present
+		if m.notification != nil {
+			notification := m.renderNotification()
+			return m.renderNotificationOverlay(modalContent, notification)
+		}
+		return modalContent
 	}
 
 	// Render main view with panels
