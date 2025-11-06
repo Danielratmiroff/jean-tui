@@ -209,6 +209,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmd = m.showWarningNotification(fmt.Sprintf("Worktree created but setup script failed:\n%s", warningMsg))
 				m.modal = noModal
 				m.lastCreatedBranch = msg.branch
+
+				// OPTIMISTIC UI UPDATE: Add worktree immediately even though setup failed
+				repoName := filepath.Base(m.repoPath)
+				tempWorktree := git.Worktree{
+					Path:              msg.path,
+					Branch:            msg.branch,
+					LastModified:      time.Now(),
+					ClaudeSessionName: m.sessionManager.SanitizeName(repoName, msg.branch),
+				}
+				m.worktrees = append(m.worktrees, tempWorktree)
+				m.sortWorktrees()
+
+				// Select the newly created worktree
+				for i, wt := range m.worktrees {
+					if wt.Branch == msg.branch {
+						m.selectedIndex = i
+						break
+					}
+				}
+
 				// Still refresh worktrees since the worktree was created successfully
 				return m, tea.Batch(cmd, m.loadWorktrees())
 			} else {
@@ -235,7 +255,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pendingPRInfo = nil // Clear after storing
 			}
 
-			// Quick refresh without expensive status checks
+			// OPTIMISTIC UI UPDATE: Add worktree to list immediately for instant feedback
+			// This eliminates the delay between notification and list update
+			repoName := filepath.Base(m.repoPath)
+			tempWorktree := git.Worktree{
+				Path:              msg.path,
+				Branch:            msg.branch,
+				LastModified:      time.Now(), // Set to now so it appears at top after sorting
+				ClaudeSessionName: m.sessionManager.SanitizeName(repoName, msg.branch),
+				// Other fields (Commit, BehindCount, etc.) will be filled by background refresh
+			}
+			m.worktrees = append(m.worktrees, tempWorktree)
+			m.sortWorktrees() // Sort to position the new worktree correctly
+
+			// Select the newly created worktree immediately
+			for i, wt := range m.worktrees {
+				if wt.Branch == msg.branch {
+					m.selectedIndex = i
+					break
+				}
+			}
+
+			// Background refresh to update with accurate status
 			// Also load PR details asynchronously for the newly created branch
 			return m, tea.Batch(
 				cmd,
@@ -261,6 +302,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					SessionName: msg.sessionName,
 					AutoClaude: m.autoClaude,
 				}
+
+				// OPTIMISTIC UI UPDATE: Add worktree immediately even though setup failed
+				repoName := filepath.Base(m.repoPath)
+				tempWorktree := git.Worktree{
+					Path:              msg.path,
+					Branch:            msg.branch,
+					LastModified:      time.Now(),
+					ClaudeSessionName: m.sessionManager.SanitizeName(repoName, msg.branch),
+				}
+				m.worktrees = append(m.worktrees, tempWorktree)
+				m.sortWorktrees()
+
+				// Select the newly created worktree
+				for i, wt := range m.worktrees {
+					if wt.Branch == msg.branch {
+						m.selectedIndex = i
+						break
+					}
+				}
+
 				return m, tea.Batch(cmd, m.loadWorktrees())
 			} else {
 				// Git worktree creation failed - show error
@@ -282,7 +343,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				AutoClaude:  m.autoClaude,
 			}
 
-			// Quick refresh without expensive status checks
+			// OPTIMISTIC UI UPDATE: Add worktree to list immediately for instant feedback
+			// This eliminates the delay between notification and list update
+			repoName := filepath.Base(m.repoPath)
+			tempWorktree := git.Worktree{
+				Path:              msg.path,
+				Branch:            msg.branch,
+				LastModified:      time.Now(), // Set to now so it appears at top after sorting
+				ClaudeSessionName: m.sessionManager.SanitizeName(repoName, msg.branch),
+				// Other fields (Commit, BehindCount, etc.) will be filled by background refresh
+			}
+			m.worktrees = append(m.worktrees, tempWorktree)
+			m.sortWorktrees() // Sort to position the new worktree correctly
+
+			// Select the newly created worktree immediately
+			for i, wt := range m.worktrees {
+				if wt.Branch == msg.branch {
+					m.selectedIndex = i
+					break
+				}
+			}
+
+			// Background refresh to update with accurate status
 			// Also load PR details asynchronously for the newly created branch
 			return m, tea.Batch(
 				cmd,

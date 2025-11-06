@@ -1,5 +1,5 @@
 {
   "scripts": {
-    "setup": "echo hello",
+    "setup": "echo hello"
   }
 }
