@@ -7,7 +7,6 @@ jean is a terminal user interface (TUI) that makes working with Git worktrees ef
 - **Manage worktrees** instantly with single keystrokes
 - **Automate workflows** with AI-generated commit messages, branch names, and PR descriptions
 - **Handle GitHub PRs** without leaving the terminal
-- **Run custom scripts** with live output
 - **Open editors** directly on worktrees
 - **Maintain persistent Claude CLI sessions** for each branch
 
@@ -20,7 +19,6 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and designed
 - **Git Worktree Management** - Create, switch, and delete worktrees with single keystrokes
 - **AI-Powered Workflow** - Auto-generate commit messages, branch names, and PR content (11+ AI models)
 - **GitHub PR Automation** - Create draft PRs, browse PRs, merge with strategy selection
-- **Custom Scripts** - Define and run bash scripts from `jean.json` with live output streaming
 - **Tmux Sessions** - Persistent Claude CLI and terminal sessions per worktree
 - **5 Themes** - Matrix, Coolify, Dracula, Nord, Solarized with dynamic switching
 - **Multi-Editor Support** - Open worktrees in VS Code, Cursor, Neovim, Vim, Sublime, Atom, or Zed
@@ -91,8 +89,6 @@ jean -path /path/to/other/repo
 | `d` | Delete worktree |
 | `o` | Open in editor |
 | `r` | Refresh (fetch + auto-pull) |
-| `R` | Run 'run' script |
-| `;` | Scripts menu |
 
 ### Git Operations
 | Key | Action |
@@ -131,27 +127,6 @@ Settings stored in `~/.config/jean/config.json` per repository:
 - **AI Settings** - OpenRouter API key, model selection, feature toggles
 - **Debug logs** - Enable logging to `/tmp/jean-debug.log`
 
-### Custom Scripts (jean.json)
-
-Create `jean.json` in your repository root:
-
-```json
-{
-  "scripts": {
-    "run": "npm start",
-    "test": "npm test",
-    "build": "npm run build"
-  }
-}
-```
-
-**Environment variables available in scripts:**
-- `JEAN_WORKSPACE_PATH` - Path to worktree
-- `JEAN_ROOT_PATH` - Path to repo root
-- `JEAN_BRANCH` - Current branch name
-
-Run with `R` (quick 'run') or `;` (scripts menu).
-
 ### Tmux Configuration
 
 Press `s` → Tmux Config to install an opinionated tmux configuration with:
@@ -161,6 +136,25 @@ Press `s` → Tmux Config to install an opinionated tmux configuration with:
 - Shift+Left/Right to switch windows
 - Ctrl+D to detach
 - Better pane borders and status bar
+
+### Setup Scripts
+
+Automatically run commands when creating new worktrees. Create `jean.json` in your repository root:
+
+```json
+{
+  "scripts": {
+    "setup": "npm install && cp $JEAN_ROOT_PATH/.env ."
+  }
+}
+```
+
+**Environment variables available:**
+- `JEAN_WORKSPACE_PATH` - Path to the newly created worktree
+- `JEAN_ROOT_PATH` - Path to the repository root directory
+- `JEAN_BRANCH` - Current branch name
+
+The setup script runs automatically for every new worktree (created with `n` or `a` keys). Script failures are shown as warnings and won't block worktree creation.
 
 ## Workflows
 

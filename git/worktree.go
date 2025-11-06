@@ -315,7 +315,7 @@ func (m *Manager) Create(path, branch string, newBranch bool, baseBranch string)
 	return nil
 }
 
-// executeSetupScript runs the onWorktreeCreate script from jean.json if configured
+// executeSetupScript runs the setup script from jean.json if configured
 // Returns error if script execution fails, nil if no script configured or script succeeds
 func (m *Manager) executeSetupScript(workspacePath string) error {
 	// Load script config from repository root
@@ -329,8 +329,8 @@ func (m *Manager) executeSetupScript(workspacePath string) error {
 		return fmt.Errorf("failed to load jean.json: %w", err)
 	}
 
-	// Get the onWorktreeCreate script
-	script := scriptConfig.GetScript("onWorktreeCreate")
+	// Get the setup script
+	script := scriptConfig.GetScript("setup")
 	if script == "" {
 		// No setup script configured, skip
 		return nil

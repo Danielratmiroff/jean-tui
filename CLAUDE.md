@@ -88,7 +88,6 @@ The application follows a clean separation of concerns:
   - `tmux.go`: Session creation, attachment, listing, and lifecycle management
 - **config/**: User configuration persistence
   - `config.go`: Manages base branch settings per repository in `~/.config/jean/config.json`
-  - `scripts.go`: Loads and manages custom scripts from `jean.json`
 - **github/**: GitHub PR operations
   - `pr.go`: PR creation, listing, merging via gh CLI
 - **openrouter/**: AI integration
@@ -274,7 +273,7 @@ Configuration management:
 ```json
 {
   "scripts": {
-    "onWorktreeCreate": "npm install && cp $JEAN_ROOT_PATH/.env ."
+    "setup": "npm install && cp $JEAN_ROOT_PATH/.env ."
   }
 }
 ```
@@ -371,52 +370,6 @@ Key external dependencies:
    - Visual link in worktree details panel (clickable terminal links)
    - Shows PR status (draft, ready, merged)
    - Integrated with commit flow (prompt to create PR after commit)
-
-### Scripts System ✅
-**Files**: `config/scripts.go`, `tui/model.go`, `tui/view.go`, `tui/update.go`
-
-**Features**:
-1. **Custom Scripts from jean.json** (`;` keybinding, lines 1330-1340)
-   - Load scripts from `jean.json` in repository root
-   - Run arbitrary bash commands on selected worktrees
-   - Real-time streaming output with live updates
-   - Script execution tracking (start time, output, finished status)
-   - Structure:
-     ```json
-     {
-       "scripts": {
-         "run": "npm start",
-         "test": "npm test",
-         "build": "npm run build",
-         "custom": "custom command"
-       }
-     }
-     ```
-
-2. **Run Script** (`R` keybinding, lines 1099-1141)
-   - Quick-run the 'run' script from jean.json
-   - Opens script output modal automatically
-   - Shows running scripts with elapsed time
-   - Spinner animation during execution
-
-3. **Scripts Modal** (view.go:1943-2056)
-   - Lists running scripts with status indicators
-   - Lists available scripts from jean.json
-   - Kill running scripts with `d` or `k` key
-   - View script output in separate modal
-   - Color-coded status (running, finished)
-
-4. **Script Output Modal** (view.go:2058-2126)
-   - Real-time streaming output (polls every 200ms)
-   - Shows elapsed time and finish status
-   - Scrollable output display with last 30 lines visible
-   - Kill script with `k` key
-   - Close modal with `q` or `esc`
-
-**Environment Variables Available to Scripts**:
-- `JEAN_WORKSPACE_PATH`: Full path to worktree directory
-- `JEAN_ROOT_PATH`: Full path to repository root
-- `JEAN_BRANCH`: Current branch name
 
 ### Themes System ✅
 **Files**: `tui/themes.go`, `tui/styles.go`, `config/config.go`
@@ -565,19 +518,16 @@ Key external dependencies:
 
 **Worktree Setup Scripts** ✅:
 - Automatic execution of setup scripts when creating new worktrees
-- Configured via `jean.json` in repository root using `scripts.onWorktreeCreate` key
+- Configured via `jean.json` in repository root using `scripts.setup` key
 - Provides `JEAN_WORKSPACE_PATH` and `JEAN_ROOT_PATH` environment variables to scripts
 - Runs every time a worktree is created (no marker file tracking)
 - Runs for all worktree creation methods (new branch with `n`, existing branch with `a`)
 - Script failures are non-blocking - displayed as warnings, not errors
 - Full script output captured and shown in notification for debugging
-- Scripts modal (`;` key) displays `onWorktreeCreate` as view-only (cannot be manually executed)
 - Implementation details:
   - `config/scripts.go`: Loads `jean.json` configuration
   - `git/worktree.go`: `executeSetupScript()` method handles execution
   - `tui/update.go`: Distinguishes setup script warnings from git errors
-  - `tui/model.go`: Filters `onWorktreeCreate` from runnable scripts list
-  - `tui/view.go`: Shows `onWorktreeCreate` in separate "Automatic Scripts (view-only)" section
   - Error format: "setup script failed: [error details]" triggers warning display
 
 **Automatic Base Branch Update Detection** ⚠️ (NOT YET TESTED):
@@ -755,12 +705,6 @@ All keybindings are defined in `tui/update.go` (lines 1068-1600). The applicatio
 - `r` - Refresh: fetch from remote and auto-pull all branches (lines 1094-1097)
   - Skips worktrees with uncommitted changes
   - Shows detailed pull status with commit counts
-- `R` (Shift+R) - Run 'run' script on selected worktree (lines 1099-1141)
-  - Executes `run` script from jean.json
-  - Opens script output modal
-- `;` (semicolon) - Open scripts modal (lines 1330-1340)
-  - View available scripts and their status
-  - Kill running scripts with `d` key
 - `o` - Open worktree in default editor (lines 1291-1296)
   - Uses configured editor (code, cursor, nvim, vim, subl, atom, zed)
 

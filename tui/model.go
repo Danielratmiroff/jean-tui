@@ -1,13 +1,11 @@
 package tui
 
 import (
-	"bufio"
 	"fmt"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -21,19 +19,6 @@ import (
 	"github.com/coollabsio/jean/session"
 )
 
-// Package-level shared state for streaming script output
-var (
-	scriptOutputBuffers = make(map[int]*scriptOutputBuffer)
-	scriptBuffersMutex  sync.RWMutex
-)
-
-type scriptOutputBuffer struct {
-	buffer   strings.Builder
-	mutex    sync.Mutex
-	finished bool
-	cmd      *exec.Cmd
-}
-
 // SwitchInfo contains information about the worktree to switch to
 type SwitchInfo struct {
 	Path                 string
@@ -43,17 +28,6 @@ type SwitchInfo struct {
 	ScriptCommand        string // If set, run this script command instead of shell/Claude
 	SessionName          string // Custom name for Claude session (for --session flag)
 	IsClaudeInitialized  bool   // Whether this Claude session has been initialized before
-}
-
-// ScriptExecution represents a running or completed script
-type ScriptExecution struct {
-	name         string    // Name of the script from jean.json
-	command      string    // The actual command to run
-	output       string    // Captured output
-	pid          int       // Process ID (for killing)
-	finished     bool      // Whether execution has completed
-	startTime    time.Time // When the script started
-	worktreePath string    // Path to the worktree where this script is running
 }
 
 type modalType int
@@ -76,8 +50,6 @@ const (
 	aiSettingsModal
 	prContentModal
 	prListModal
-	scriptsModal
-	scriptOutputModal
 	createWithNameModal
 	mergeStrategyModal
 	aiPromptsModal
@@ -240,15 +212,6 @@ type Model struct {
 	prStateSettingsCursor int // Selected PR state (0=draft, 1=ready for review)
 	prIsDraft    bool // Whether to create PR as draft (based on config setting)
 	prTypeCursor int  // Selected PR type (0=draft, 1=ready for review)
-
-	// Scripts modal state
-	scriptConfig       *config.ScriptConfig   // Loaded script configuration
-	scriptNames        []string               // List of available script names
-	runningScripts     []ScriptExecution      // List of running/completed scripts
-	selectedScriptIdx  int                    // Selected script index (in scripts modal)
-	isViewingRunning   bool                   // Whether selected script is running (vs available)
-	viewingScriptName  string                 // Name of currently viewed script in output modal
-	viewingScriptIdx   int                    // Index in runningScripts of currently viewed script
 
 	// PR retry state (when PR already exists)
 	prRetryWorktreePath string // Worktree path for PR retry attempt
@@ -416,21 +379,6 @@ func NewModel(repoPath string, autoClaude bool) Model {
 			if model == savedModel {
 				m.aiModelIndex = i
 				break
-			}
-		}
-	}
-
-	// Load scripts from jean.json
-	if scriptConfig, err := config.LoadScripts(absoluteRepoPath); err == nil {
-		m.scriptConfig = scriptConfig
-		allScripts := scriptConfig.GetScriptNames()
-
-		// Filter out automatic-only scripts that should not be manually runnable
-		m.scriptNames = make([]string, 0, len(allScripts))
-		for _, name := range allScripts {
-			// Exclude onWorktreeCreate - it's automatic-only
-			if name != "onWorktreeCreate" {
-				m.scriptNames = append(m.scriptNames, name)
 			}
 		}
 	}
@@ -670,21 +618,6 @@ type (
 
 	prStatusesRefreshedMsg struct {
 		err error
-	}
-
-	scriptOutputMsg struct {
-		scriptName string
-		output     string
-	}
-
-	scriptOutputStreamMsg struct {
-		scriptName string
-		output     string // Incremental output chunk
-		finished   bool   // True when script completes
-	}
-
-	scriptOutputPollMsg struct {
-		scriptIdx int // Index of script to poll
 	}
 
 	// Push-only messages (without PR creation)
@@ -1987,97 +1920,6 @@ func (m *Model) showWarningNotification(message string) tea.Cmd {
 func (m *Model) showInfoNotification(message string) tea.Cmd {
 	duration := 3 * time.Second
 	return m.showNotification(message, NotificationInfo, &duration)
-}
-
-// runScript executes a script and captures its output with real-time streaming
-// Uses cmd.Start() so the process can be killed later
-// Returns immediately and starts polling for output updates
-func (m *Model) runScript(scriptName, scriptCmd, worktreePath string, scriptIdx int) tea.Cmd {
-	return func() tea.Msg {
-		cmd := exec.Command("bash", "-c", scriptCmd)
-		cmd.Dir = worktreePath
-
-		// Create pipes for streaming stdout and stderr
-		stdoutPipe, err := cmd.StdoutPipe()
-		if err != nil {
-			return scriptOutputStreamMsg{scriptName: scriptName, output: fmt.Sprintf("Failed to create stdout pipe: %v\n", err), finished: true}
-		}
-		stderrPipe, err := cmd.StderrPipe()
-		if err != nil {
-			return scriptOutputStreamMsg{scriptName: scriptName, output: fmt.Sprintf("Failed to create stderr pipe: %v\n", err), finished: true}
-		}
-
-		// Start the process
-		if err := cmd.Start(); err != nil {
-			return scriptOutputStreamMsg{scriptName: scriptName, output: fmt.Sprintf("Failed to start script: %v\n", err), finished: true}
-		}
-
-		// Store PID in the script execution so we can kill it later
-		if scriptIdx < len(m.runningScripts) {
-			m.runningScripts[scriptIdx].pid = cmd.Process.Pid
-		}
-
-		// Create shared buffer for this script
-		scriptBuffersMutex.Lock()
-		scriptOutputBuffers[scriptIdx] = &scriptOutputBuffer{
-			cmd:      cmd,
-			finished: false,
-		}
-		scriptBuffersMutex.Unlock()
-
-		// Goroutine to read from stdout
-		go func() {
-			scanner := bufio.NewScanner(stdoutPipe)
-			for scanner.Scan() {
-				scriptBuffersMutex.RLock()
-				buf := scriptOutputBuffers[scriptIdx]
-				scriptBuffersMutex.RUnlock()
-				if buf != nil {
-					buf.mutex.Lock()
-					buf.buffer.WriteString(scanner.Text() + "\n")
-					buf.mutex.Unlock()
-				}
-			}
-		}()
-
-		// Goroutine to read from stderr
-		go func() {
-			scanner := bufio.NewScanner(stderrPipe)
-			for scanner.Scan() {
-				scriptBuffersMutex.RLock()
-				buf := scriptOutputBuffers[scriptIdx]
-				scriptBuffersMutex.RUnlock()
-				if buf != nil {
-					buf.mutex.Lock()
-					buf.buffer.WriteString(scanner.Text() + "\n")
-					buf.mutex.Unlock()
-				}
-			}
-		}()
-
-		// Goroutine to wait for process completion
-		go func() {
-			_ = cmd.Wait()
-			scriptBuffersMutex.RLock()
-			buf := scriptOutputBuffers[scriptIdx]
-			scriptBuffersMutex.RUnlock()
-			if buf != nil {
-				buf.mutex.Lock()
-				buf.finished = true
-				buf.mutex.Unlock()
-			}
-		}()
-
-		// Start polling for output updates
-		return scriptOutputPollMsg{scriptIdx: scriptIdx}
-	}
-}
-
-// pollScriptOutput polls for script output updates every 200ms
-func (m *Model) pollScriptOutput(scriptIdx int) tea.Cmd {
-	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
-		return scriptOutputPollMsg{scriptIdx: scriptIdx}
-	})
 }
 
 // scheduleNotificationHide schedules the notification to be hidden after specified duration

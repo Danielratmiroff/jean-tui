@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -955,68 +954,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Reload worktrees to show updated PR statuses
 		return m, m.loadWorktrees()
 
-	case scriptOutputMsg:
-		// Find and update the script execution with this name
-		for i := range m.runningScripts {
-			if m.runningScripts[i].name == msg.scriptName {
-				m.runningScripts[i].output = msg.output
-				m.runningScripts[i].finished = true
-				break
-			}
-		}
-		return m, nil
-
-	case scriptOutputStreamMsg:
-		// Update script with incremental output
-		for i := range m.runningScripts {
-			if m.runningScripts[i].name == msg.scriptName {
-				// Append new output (don't replace)
-				m.runningScripts[i].output += msg.output
-				if msg.finished {
-					m.runningScripts[i].finished = true
-					// Clean up the shared buffer
-					scriptBuffersMutex.Lock()
-					delete(scriptOutputBuffers, i)
-					scriptBuffersMutex.Unlock()
-				}
-				break
-			}
-		}
-		return m, nil
-
-	case scriptOutputPollMsg:
-		// Check if buffer exists for this script
-		scriptBuffersMutex.RLock()
-		buf := scriptOutputBuffers[msg.scriptIdx]
-		scriptBuffersMutex.RUnlock()
-
-		if buf == nil {
-			// Buffer doesn't exist, script might be done or not started
-			return m, nil
-		}
-
-		// Get current output from buffer
-		buf.mutex.Lock()
-		currentOutput := buf.buffer.String()
-		isFinished := buf.finished
-		buf.mutex.Unlock()
-
-		// Update the script's output
-		if msg.scriptIdx < len(m.runningScripts) {
-			m.runningScripts[msg.scriptIdx].output = currentOutput
-			if isFinished {
-				m.runningScripts[msg.scriptIdx].finished = true
-				// Clean up the shared buffer
-				scriptBuffersMutex.Lock()
-				delete(scriptOutputBuffers, msg.scriptIdx)
-				scriptBuffersMutex.Unlock()
-				return m, nil // Stop polling when finished
-			}
-		}
-
-		// Continue polling if not finished
-		return m, m.pollScriptOutput(msg.scriptIdx)
-
 	case activityTickMsg:
 		// Check if enough time has passed since last activity check
 		if time.Since(m.lastActivityCheck) >= m.activityCheckInterval {
@@ -1375,50 +1312,6 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd = m.showInfoNotification("Pulling latest commits and refreshing...")
 		return m, tea.Batch(cmd, m.refreshWithPull(), m.refreshPRStatuses(), m.loadPRDetailsForAllWorktrees(), m.checkSessionActivity())
 
-	case "R":
-		// Run the 'run' script on selected worktree (Shift+R)
-		if m.scriptConfig == nil || m.scriptConfig.GetScript("run") == "" {
-			return m, m.showWarningNotification("No 'run' script configured in jean.json")
-		}
-
-		wt := m.selectedWorktree()
-		if wt == nil {
-			return m, m.showErrorNotification("No worktree selected", 2*time.Second)
-		}
-
-		// Check if 'run' script is already running for this worktree
-		for idx, script := range m.runningScripts {
-			if script.name == "run" && script.worktreePath == wt.Path && !script.finished {
-				// Script is already running for this worktree, open its output modal
-				m.modal = scriptOutputModal
-				m.viewingScriptIdx = idx
-				m.viewingScriptName = "run"
-				return m, nil
-			}
-		}
-
-		scriptCmd := m.scriptConfig.GetScript("run")
-
-		// Create new script execution
-		exec := ScriptExecution{
-			name:         "run",
-			command:      scriptCmd,
-			output:       "",
-			finished:     false,
-			startTime:    time.Now(),
-			worktreePath: wt.Path,
-		}
-		m.runningScripts = append(m.runningScripts, exec)
-
-		// Switch to script output modal to show progress
-		m.modal = scriptOutputModal
-		m.viewingScriptIdx = len(m.runningScripts) - 1
-		m.viewingScriptName = "run"
-
-		// Run the script asynchronously
-		scriptIdx := len(m.runningScripts) - 1
-		return m, m.runScript("run", scriptCmd, wt.Path, scriptIdx)
-
 	case "n":
 		// Open create with custom name modal
 		m.modal = createWithNameModal
@@ -1512,13 +1405,6 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.showErrorNotification("Cannot rename branch with existing PRs. Delete PRs first or close them manually.", 5*time.Second)
 			}
 
-			// Check if any scripts are running in this worktree
-			for _, script := range m.runningScripts {
-				if script.worktreePath == wt.Path && !script.finished {
-					return m, m.showWarningNotification("Cannot rename while scripts are running. Stop scripts first (press ';' to view)")
-				}
-			}
-
 			m.modal = renameModal
 			m.modalFocused = 0
 			m.nameInput.SetValue(wt.Branch)
@@ -1607,18 +1493,6 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.modalFocused = 0
 		m.sessionIndex = 0
 		return m, m.loadSessions()
-
-	case ";":
-		// Open scripts modal
-		if m.scriptConfig != nil && (m.scriptConfig.HasScripts() || len(m.runningScripts) > 0) {
-			m.modal = scriptsModal
-			m.selectedScriptIdx = 0
-			// Start with running scripts if any, otherwise available scripts
-			m.isViewingRunning = len(m.runningScripts) > 0
-		} else {
-			return m, m.showWarningNotification("No scripts configured in jean.json")
-		}
-		return m, nil
 
 	case "u":
 		// Update from base branch (pull/merge base branch changes)
@@ -1906,12 +1780,6 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case mergeStrategyModal:
 		return m.handleMergeStrategyModalInput(msg)
-
-	case scriptsModal:
-		return m.handleScriptsModalInput(msg)
-
-	case scriptOutputModal:
-		return m.handleScriptOutputModalInput(msg)
 
 	case aiPromptsModal:
 		return m.handleAIPromptsModalInput(msg)
@@ -3554,150 +3422,6 @@ func buildRefreshStatusMessage(msg refreshWithPullMsg) string {
 	}
 
 	return fmt.Sprintf("Pulled %d commits: %s", totalCommits, strings.Join(branchDetails, ", "))
-}
-
-// handleScriptsModalInput handles input in the scripts selection modal
-func (m Model) handleScriptsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		// Close scripts modal
-		m.modal = noModal
-		return m, nil
-
-	case "up":
-		// Move selection up
-		if m.isViewingRunning {
-			// In running scripts section
-			if m.selectedScriptIdx > 0 {
-				m.selectedScriptIdx--
-			} else if m.scriptConfig.HasScripts() {
-				// Switch to available scripts section at the end
-				m.isViewingRunning = false
-				m.selectedScriptIdx = len(m.scriptNames) - 1
-			}
-		} else {
-			// In available scripts section
-			if m.selectedScriptIdx > 0 {
-				m.selectedScriptIdx--
-			} else if len(m.runningScripts) > 0 {
-				// Switch to running scripts section at the end
-				m.isViewingRunning = true
-				m.selectedScriptIdx = len(m.runningScripts) - 1
-			}
-		}
-		return m, nil
-
-	case "down":
-		// Move selection down
-		if m.isViewingRunning {
-			// In running scripts section
-			if m.selectedScriptIdx < len(m.runningScripts)-1 {
-				m.selectedScriptIdx++
-			} else if m.scriptConfig.HasScripts() {
-				// Switch to available scripts section
-				m.isViewingRunning = false
-				m.selectedScriptIdx = 0
-			}
-		} else {
-			// In available scripts section
-			if m.selectedScriptIdx < len(m.scriptNames)-1 {
-				m.selectedScriptIdx++
-			} else if len(m.runningScripts) > 0 {
-				// Switch to running scripts section
-				m.isViewingRunning = true
-				m.selectedScriptIdx = 0
-			}
-		}
-		return m, nil
-
-	case "d":
-		// Delete/kill running script
-		if m.isViewingRunning && m.selectedScriptIdx < len(m.runningScripts) {
-			script := &m.runningScripts[m.selectedScriptIdx]
-			// Kill the process using syscall
-			if !script.finished && script.pid > 0 {
-				_ = syscall.Kill(script.pid, syscall.SIGKILL)
-				script.finished = true
-			}
-			// Remove script from list
-			m.runningScripts = append(m.runningScripts[:m.selectedScriptIdx], m.runningScripts[m.selectedScriptIdx+1:]...)
-			if m.selectedScriptIdx >= len(m.runningScripts) && m.selectedScriptIdx > 0 {
-				m.selectedScriptIdx--
-			}
-			return m, m.showSuccessNotification("Script killed and removed", 2*time.Second)
-		}
-		return m, nil
-
-	case "enter":
-		// Check if selecting a running script or available script
-		if m.isViewingRunning && m.selectedScriptIdx < len(m.runningScripts) {
-			// Switch to output modal for running script
-			m.modal = scriptOutputModal
-			m.viewingScriptIdx = m.selectedScriptIdx
-			m.viewingScriptName = m.runningScripts[m.selectedScriptIdx].name
-			return m, nil
-		} else if !m.isViewingRunning && m.selectedScriptIdx < len(m.scriptNames) {
-			// Run selected available script
-			scriptName := m.scriptNames[m.selectedScriptIdx]
-			scriptCmd := m.scriptConfig.GetScript(scriptName)
-
-			wt := m.selectedWorktree()
-			if wt == nil {
-				m.modal = noModal
-				return m, m.showErrorNotification("No worktree selected", 2*time.Second)
-			}
-
-			// Create new script execution
-			exec := ScriptExecution{
-				name:         scriptName,
-				command:      scriptCmd,
-				output:       "",
-				finished:     false,
-				startTime:    time.Now(),
-				worktreePath: wt.Path,
-			}
-			m.runningScripts = append(m.runningScripts, exec)
-
-			// Switch to script output modal
-			m.modal = scriptOutputModal
-			m.viewingScriptIdx = len(m.runningScripts) - 1
-			m.viewingScriptName = scriptName
-
-			// Run the script asynchronously (pass the index so we can store process reference)
-			scriptIdx := len(m.runningScripts) - 1
-			return m, m.runScript(scriptName, scriptCmd, wt.Path, scriptIdx)
-		}
-		return m, nil
-	}
-
-	return m, nil
-}
-
-// handleScriptOutputModalInput handles input in the script output modal
-func (m Model) handleScriptOutputModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		// Close script output modal and return to scripts modal
-		m.modal = scriptsModal
-		m.viewingScriptName = ""
-		m.viewingScriptIdx = -1
-		m.selectedScriptIdx = 0
-		return m, nil
-
-	case "k":
-		// Kill script (only if still running)
-		if m.viewingScriptIdx >= 0 && m.viewingScriptIdx < len(m.runningScripts) {
-			script := &m.runningScripts[m.viewingScriptIdx]
-			if !script.finished && script.pid > 0 {
-				_ = syscall.Kill(script.pid, syscall.SIGKILL)
-				script.finished = true
-				return m, nil
-			}
-		}
-		return m, nil
-	}
-
-	return m, nil
 }
 
 func (m Model) handleOnboardingModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

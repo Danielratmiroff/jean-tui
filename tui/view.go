@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/coollabsio/jean/config"
@@ -435,11 +434,6 @@ func (m Model) renderModal() string {
 		return m.renderMergeStrategyModal()
 	case helperModal:
 		return m.renderHelperModal()
-	case scriptsModal:
-		return m.renderScriptsModal()
-
-	case scriptOutputModal:
-		return m.renderScriptOutputModal()
 	case onboardingModal:
 		return m.renderOnboardingModal()
 	case gitInitModal:
@@ -2068,16 +2062,6 @@ func (m Model) renderHelperModal() string {
 			},
 		},
 		{
-			name: "Automation & Scripts",
-			keybindings: []struct {
-				key         string
-				description string
-			}{
-				{"R", "Execute 'run' script (jean.json)"},
-				{";", "View and run custom scripts (jean.json)"},
-			},
-		},
-		{
 			name: "Application",
 			keybindings: []struct {
 				key         string
@@ -2173,193 +2157,6 @@ func (m Model) renderHelperModal() string {
 		content,
 	)
 }
-
-// renderScriptsModal renders the scripts selection modal with running and available scripts
-func (m Model) renderScriptsModal() string {
-	var b strings.Builder
-
-	if len(m.runningScripts) == 0 && !m.scriptConfig.HasScripts() {
-		b.WriteString(modalTitleStyle.Render("Scripts"))
-		b.WriteString("\n\n")
-		b.WriteString(normalItemStyle.Render("No scripts configured in jean.json"))
-		b.WriteString("\n\n")
-		b.WriteString(helpStyle.Render("Press Esc to close"))
-	} else {
-		b.WriteString(modalTitleStyle.Render("Scripts"))
-		b.WriteString("\n\n")
-
-		// Show running scripts section
-		if len(m.runningScripts) > 0 {
-			b.WriteString(detailKeyStyle.Render("Running Scripts:"))
-			b.WriteString("\n")
-
-			for i, script := range m.runningScripts {
-				var style lipgloss.Style
-				if m.isViewingRunning && i == m.selectedScriptIdx {
-					style = selectedItemStyle
-				} else {
-					style = normalItemStyle
-				}
-
-				statusIcon := "⏳"
-				displayText := fmt.Sprintf("  %s %s", statusIcon, script.name)
-				if script.finished {
-					statusIcon = "✓"
-					displayText = fmt.Sprintf("  %s %s", statusIcon, script.name)
-				} else {
-					elapsed := time.Since(script.startTime).Seconds()
-					displayText = fmt.Sprintf("  %s %s (%0.0fs)", statusIcon, script.name, elapsed)
-				}
-				b.WriteString(style.Render(displayText))
-				b.WriteString("\n")
-			}
-			b.WriteString("\n")
-		}
-
-		// Show automatic scripts section (view-only)
-		if onWorktreeCreate := m.scriptConfig.GetScript("onWorktreeCreate"); onWorktreeCreate != "" {
-			b.WriteString(detailKeyStyle.Render("Automatic Scripts (view-only):"))
-			b.WriteString("\n")
-			displayText := fmt.Sprintf("  ⚙ onWorktreeCreate")
-			dimmedStyle := normalItemStyle.Copy().Foreground(mutedColor)
-			b.WriteString(dimmedStyle.Render(displayText))
-			b.WriteString("\n")
-			b.WriteString(detailKeyStyle.Render("  Command: "))
-			b.WriteString(detailValueStyle.Render(onWorktreeCreate))
-			b.WriteString("\n\n")
-		}
-
-		// Show available scripts section
-		if len(m.scriptNames) > 0 {
-			b.WriteString(detailKeyStyle.Render("Available Scripts:"))
-			b.WriteString("\n")
-
-			maxVisible := 5
-			start := m.selectedScriptIdx - maxVisible/2
-			if start < 0 {
-				start = 0
-			}
-			end := start + maxVisible
-			if end > len(m.scriptNames) {
-				end = len(m.scriptNames)
-				start = end - maxVisible
-				if start < 0 {
-					start = 0
-				}
-			}
-
-			for i := start; i < end; i++ {
-				scriptName := m.scriptNames[i]
-				var style lipgloss.Style
-				if !m.isViewingRunning && i == m.selectedScriptIdx {
-					style = selectedItemStyle
-				} else {
-					style = normalItemStyle
-				}
-
-				displayText := fmt.Sprintf("  • %s", scriptName)
-				b.WriteString(style.Render(displayText))
-				b.WriteString("\n")
-			}
-
-			// Show selected script command for preview
-			if len(m.scriptNames) > 0 && m.selectedScriptIdx < len(m.scriptNames) {
-				selectedScript := m.scriptNames[m.selectedScriptIdx]
-				cmd := m.scriptConfig.GetScript(selectedScript)
-				b.WriteString("\n")
-				b.WriteString(detailKeyStyle.Render("Command: "))
-				b.WriteString(detailValueStyle.Render(cmd))
-				b.WriteString("\n")
-			}
-		}
-
-		b.WriteString("\n")
-		helpText := "↑/↓ select • Enter open/run • Esc cancel"
-		if len(m.runningScripts) > 0 {
-			helpText += " • d kill"
-		}
-		b.WriteString(helpStyle.Render(helpText))
-	}
-
-	// Center the modal
-	content := modalStyle.Width(m.width - 4).Render(b.String())
-	return lipgloss.Place(
-		m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		content,
-	)
-}
-
-// renderScriptOutputModal renders the script output modal
-func (m Model) renderScriptOutputModal() string {
-	var b strings.Builder
-
-	// Get current script execution
-	if m.viewingScriptIdx < 0 || m.viewingScriptIdx >= len(m.runningScripts) {
-		b.WriteString(modalTitleStyle.Render("Script Output"))
-		b.WriteString("\n\n")
-		b.WriteString(normalItemStyle.Render("No script selected"))
-		b.WriteString("\n\n")
-		b.WriteString(helpStyle.Render("Press Esc to close"))
-	} else {
-		script := m.runningScripts[m.viewingScriptIdx]
-
-		// Title with script name
-		title := fmt.Sprintf("Script Output: %s", script.name)
-		b.WriteString(modalTitleStyle.Render(title))
-		b.WriteString("\n\n")
-
-		// Show running/finished status with elapsed time
-		elapsed := time.Since(script.startTime).Seconds()
-		if !script.finished {
-			b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render(fmt.Sprintf("Running... (%0.0fs)", elapsed)))
-		} else {
-			b.WriteString(normalItemStyle.Copy().Foreground(successColor).Render(fmt.Sprintf("✓ Finished (%0.0fs)", elapsed)))
-		}
-		b.WriteString("\n\n")
-
-		// Show script output in a box
-		maxWidth := m.width - 20
-		maxHeight := m.height - 10
-
-		// Render output with line wrapping
-		output := script.output
-		if output == "" {
-			output = "(no output)"
-		}
-
-		// Create scrollable output display
-		lines := strings.Split(output, "\n")
-		visibleLines := lines
-		if len(lines) > maxHeight {
-			// Show last N lines if output is too long
-			visibleLines = lines[len(lines)-maxHeight:]
-			b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("... (scrolled to end)"))
-			b.WriteString("\n")
-		}
-
-		outputText := strings.Join(visibleLines, "\n")
-		outputBox := panelStyle.Width(maxWidth).Height(maxHeight).Render(outputText)
-		b.WriteString(outputBox)
-
-		b.WriteString("\n\n")
-		// Show keybindings
-		if script.finished {
-			b.WriteString(helpStyle.Render("Esc back to scripts"))
-		} else {
-			b.WriteString(helpStyle.Render("k kill • Esc back to scripts"))
-		}
-	}
-
-	// Center the modal
-	content := modalStyle.Width(m.width - 4).Render(b.String())
-	return lipgloss.Place(
-		m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		content,
-	)
-}
-
 
 func (m Model) renderMergeStrategyModal() string {
 	var b strings.Builder
