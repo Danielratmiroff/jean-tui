@@ -80,8 +80,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This ensures cursor is positioned correctly in the sorted list
 		m.sortWorktrees()
 
-			// If we just created a worktree, select it
-			if m.lastCreatedBranch != "" {
+			// Priority 1: If we just renamed a worktree, select the renamed branch
+			if m.lastRenamedBranch != "" {
+				for i, wt := range m.worktrees {
+					if wt.Branch == m.lastRenamedBranch {
+						m.selectedIndex = i
+						// Clear the flag
+						m.lastRenamedBranch = ""
+						break
+					}
+				}
+			} else if m.lastCreatedBranch != "" {
+				// Priority 2: If we just created a worktree, select it
 				for i, wt := range m.worktrees {
 					if wt.Branch == m.lastCreatedBranch {
 						m.selectedIndex = i
@@ -91,7 +101,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			} else {
-				// Otherwise, restore last selected branch if available
+				// Priority 3: Otherwise, restore last selected branch if available
 				if m.configManager != nil {
 					if lastBranch := m.configManager.GetLastSelectedBranch(m.repoPath); lastBranch != "" {
 						// Find the worktree with this branch
@@ -321,6 +331,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			cmd = m.showSuccessNotification(notificationMsg, 4*time.Second)
+			// Track the renamed branch for auto-selection after reload
+			m.lastRenamedBranch = msg.newBranch
 			// Rename tmux sessions to match the new branch name
 			// Reload worktree list to update the UI
 			return m, tea.Batch(
@@ -345,6 +357,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Status data (uncommitted changes, ahead/behind counts) loads asynchronously in background
 		// This dramatically improves perceived startup performance with many worktrees
 		return m, m.loadWorktreesLightweight()
+
+	case gitInitCompletedMsg:
+		if msg.err != nil {
+			// Git init failed, show error and keep modal open
+			m.gitInitError = fmt.Sprintf("Failed to initialize git: %v\n\nTry again? (y/n)", msg.err)
+			return m, nil
+		}
+		// Git init succeeded, close modal and load the app normally
+		m.modal = noModal
+		m.debugLog("Git repository initialized successfully")
+		return m, tea.Batch(
+			m.loadBaseBranch(),
+			m.loadSessions(),
+		)
 
 	case notificationHideMsg:
 		// Only handle if this is the current notification
@@ -430,24 +456,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prRetryDescription = ""
 
 			m.debugLog(fmt.Sprintf("PR created successfully: %s", msg.prURL))
-			// Find the worktree branch for this PR
-			var prBranch string
-			for _, wt := range m.worktrees {
-				if wt.Path == msg.prURL || len(m.worktrees) == 1 {
-					// Try to find the worktree by comparing with current selection
-					if sel := m.selectedWorktree(); sel != nil && sel.Path == wt.Path {
-						prBranch = wt.Branch
-						break
-					}
-				}
-			}
-
-			// If we have a selected worktree, use its branch
-			if prBranch == "" {
-				if sel := m.selectedWorktree(); sel != nil {
-					prBranch = sel.Branch
-				}
-			}
+			// Use the branch from the message (the one we actually created the PR for)
+			// This prevents race conditions where the user navigates to a different worktree
+			// while the PR is being created
+			prBranch := msg.branch
 
 			m.debugLog(fmt.Sprintf("Saving PR for branch: %s, title: %s", prBranch, msg.prTitle))
 			// Save PR to config
@@ -462,7 +474,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			m.debugLog("Triggering worktree refresh after PR creation")
-			cmd = m.showSuccessNotification("PR created / updated: " + msg.prURL, 5*time.Second)
+
+			// Create status message based on draft status
+			statusMsg := "PR created / updated"
+			if msg.isDraft {
+				statusMsg = "Draft PR created / updated"
+			}
+			cmd = m.showSuccessNotification(statusMsg + ": " + msg.prURL, 5*time.Second)
 			return m, tea.Batch(
 				cmd,
 				m.loadWorktrees(),
@@ -1859,6 +1877,9 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case onboardingModal:
 		return m.handleOnboardingModalInput(msg)
+
+	case gitInitModal:
+		return m.handleGitInitModalInput(msg)
 
 	case helperModal:
 		return m.handleHelperModalInput(msg)
@@ -3581,6 +3602,21 @@ func (m Model) handleOnboardingModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) handleGitInitModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "enter":
+		// Initialize git repository
+		return m, m.initGitRepository()
+
+	case "n", "q", "esc":
+		// Quit application
+		return m, tea.Quit
+
+	default:
+		return m, nil
+	}
 }
 
 func (m Model) handleHelperModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

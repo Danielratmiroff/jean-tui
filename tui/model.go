@@ -83,6 +83,7 @@ const (
 	aiPromptsModal
 	prTypeModal
 	onboardingModal
+	gitInitModal
 )
 
 // NotificationType defines the type of notification
@@ -135,6 +136,7 @@ type Model struct {
 
 	// Branch status tracking
 	lastCreatedBranch string // Last created branch name (for auto-selection after creation)
+	lastRenamedBranch string // Last renamed branch name (for auto-selection after rename)
 
 	// Activity tracking
 	lastActivityCheck     time.Time
@@ -263,6 +265,9 @@ type Model struct {
 
 	// Onboarding state
 	onboardingFocused int // Which button is focused in onboarding modal (0=install, 1=skip)
+
+	// Git init modal state
+	gitInitError string // Error message for git initialization
 }
 
 // NewModel creates a new TUI model
@@ -447,6 +452,18 @@ func (m Model) Init() tea.Cmd {
 		ApplyTheme("matrix")
 	}
 
+	// Check if this is a git repository
+	if _, err := m.gitManager.GetRepoRoot(); err != nil {
+		// Not a git repository, show git init modal
+		m.modal = gitInitModal
+		m.gitInitError = fmt.Sprintf("Not a git repository in: %s\n\nWould you like to initialize git here?", m.repoPath)
+		return tea.Batch(
+			m.scheduleActivityCheck(),
+			m.checkForUpdates(),
+			tea.EnterAltScreen,
+		)
+	}
+
 	return tea.Batch(
 		m.loadBaseBranch(),
 		m.loadSessions(),
@@ -523,6 +540,10 @@ type (
 		branch string
 	}
 
+	gitInitCompletedMsg struct {
+		err error
+	}
+
 	clearErrorMsg struct{}
 
 	statusMsg string
@@ -538,6 +559,7 @@ type (
 		worktreePath string // Worktree path for retry on "PR already exists"
 		prTitle      string // PR title for storing in config
 		author       string // PR author for storing in config
+		isDraft      bool   // Whether the PR is a draft
 	}
 
 	branchPulledMsg struct {
@@ -1008,6 +1030,18 @@ func (m Model) loadBaseBranch() tea.Cmd {
 	}
 }
 
+func (m Model) initGitRepository() tea.Cmd {
+	return func() tea.Msg {
+		// Run git init in the repo path
+		cmd := exec.Command("git", "init")
+		cmd.Dir = m.repoPath
+		if err := cmd.Run(); err != nil {
+			return gitInitCompletedMsg{err: fmt.Errorf("failed to initialize git repository: %w", err)}
+		}
+		return gitInitCompletedMsg{err: nil}
+	}
+}
+
 func (m Model) openInEditor(path string) tea.Cmd {
 	return func() tea.Msg {
 		// Get configured editor (defaults to "code")
@@ -1031,48 +1065,48 @@ func (m Model) createPR(worktreePath, branch string, optionalTitle string, optio
 		// Check if it's a GitHub repo
 		isGitHub, err := m.gitManager.IsGitHubRepo()
 		if err != nil {
-			return prCreatedMsg{err: fmt.Errorf("failed to check repository: %w", err)}
+			return prCreatedMsg{err: fmt.Errorf("failed to check repository: %w", err), isDraft: m.prIsDraft}
 		}
 		if !isGitHub {
-			return prCreatedMsg{err: fmt.Errorf("not a GitHub repository")}
+			return prCreatedMsg{err: fmt.Errorf("not a GitHub repository"), isDraft: m.prIsDraft}
 		}
 
 		// Check if base branch is set
 		if m.baseBranch == "" {
-			return prCreatedMsg{err: fmt.Errorf("base branch not set. Press 'b' to set base branch")}
+			return prCreatedMsg{err: fmt.Errorf("base branch not set. Press 'b' to set base branch"), isDraft: m.prIsDraft}
 		}
 
 		// Check if the branch has any commits
 		hasCommits, err := m.gitManager.HasCommits(worktreePath)
 		if err != nil {
-			return prCreatedMsg{err: fmt.Errorf("failed to check for commits: %w", err)}
+			return prCreatedMsg{err: fmt.Errorf("failed to check for commits: %w", err), isDraft: m.prIsDraft}
 		}
 		if !hasCommits {
-			return prCreatedMsg{err: fmt.Errorf("no commits to create PR")}
+			return prCreatedMsg{err: fmt.Errorf("no commits to create PR"), isDraft: m.prIsDraft}
 		}
 
 		// Check if remote branch exists
 		remoteBranchExists, err := m.gitManager.RemoteBranchExists(worktreePath, branch)
 		if err != nil {
-			return prCreatedMsg{err: fmt.Errorf("failed to check remote branch: %w", err)}
+			return prCreatedMsg{err: fmt.Errorf("failed to check remote branch: %w", err), isDraft: m.prIsDraft}
 		}
 
 		// Only push if branch doesn't exist remotely or has unpushed commits
 		if !remoteBranchExists {
 			// Push the branch for the first time
 			if err := m.gitManager.Push(worktreePath, branch); err != nil {
-				return prCreatedMsg{err: fmt.Errorf("failed to push commits: %w", err)}
+				return prCreatedMsg{err: fmt.Errorf("failed to push commits: %w", err), isDraft: m.prIsDraft}
 			}
 		} else {
 			// Branch exists remotely, check if we have unpushed commits
 			hasUnpushed, err := m.gitManager.HasUnpushedCommits(worktreePath, branch)
 			if err != nil {
-				return prCreatedMsg{err: fmt.Errorf("failed to check for unpushed commits: %w", err)}
+				return prCreatedMsg{err: fmt.Errorf("failed to check for unpushed commits: %w", err), isDraft: m.prIsDraft}
 			}
 			if hasUnpushed {
 				// Push new commits
 				if err := m.gitManager.Push(worktreePath, branch); err != nil {
-					return prCreatedMsg{err: fmt.Errorf("failed to push commits: %w", err)}
+					return prCreatedMsg{err: fmt.Errorf("failed to push commits: %w", err), isDraft: m.prIsDraft}
 				}
 			}
 			// If no unpushed commits, branch is already up to date, continue to PR creation
@@ -1101,7 +1135,7 @@ func (m Model) createPR(worktreePath, branch string, optionalTitle string, optio
 			author = user
 		}
 
-		return prCreatedMsg{prURL: prURL, branch: branch, worktreePath: worktreePath, prTitle: title, author: author}
+		return prCreatedMsg{prURL: prURL, branch: branch, worktreePath: worktreePath, prTitle: title, author: author, isDraft: m.prIsDraft}
 	}
 }
 
@@ -1109,18 +1143,18 @@ func (m Model) createPR(worktreePath, branch string, optionalTitle string, optio
 func (m Model) createOrUpdatePR(worktreePath, branch string, title string, description string) tea.Cmd {
 	return func() tea.Msg {
 		if branch == "" {
-			return prCreatedMsg{err: fmt.Errorf("branch name is empty"), branch: branch, worktreePath: worktreePath}
+			return prCreatedMsg{err: fmt.Errorf("branch name is empty"), branch: branch, worktreePath: worktreePath, isDraft: m.prIsDraft}
 		}
 
 		// Verify base branch is set
 		if m.baseBranch == "" {
-			return prCreatedMsg{err: fmt.Errorf("base branch not set. Press 'b' to set base branch"), branch: branch, worktreePath: worktreePath}
+			return prCreatedMsg{err: fmt.Errorf("base branch not set. Press 'b' to set base branch"), branch: branch, worktreePath: worktreePath, isDraft: m.prIsDraft}
 		}
 
 		// Check if a PR already exists for this branch
 		existingPR, err := m.githubManager.GetPRForBranch(worktreePath, branch)
 		if err != nil {
-			return prCreatedMsg{err: fmt.Errorf("failed to check for existing PR: %w", err), branch: branch, worktreePath: worktreePath}
+			return prCreatedMsg{err: fmt.Errorf("failed to check for existing PR: %w", err), branch: branch, worktreePath: worktreePath, isDraft: m.prIsDraft}
 		}
 
 		// Get current git user for author field
@@ -1132,18 +1166,18 @@ func (m Model) createOrUpdatePR(worktreePath, branch string, title string, descr
 		// If PR exists, update it instead of creating a new one
 		if existingPR != nil {
 			if err := m.githubManager.UpdatePR(worktreePath, branch, title, description); err != nil {
-				return prCreatedMsg{err: err, branch: branch, worktreePath: worktreePath}
+				return prCreatedMsg{err: err, branch: branch, worktreePath: worktreePath, isDraft: m.prIsDraft}
 			}
-			return prCreatedMsg{prURL: existingPR.URL, branch: branch, worktreePath: worktreePath, prTitle: title, author: author}
+			return prCreatedMsg{prURL: existingPR.URL, branch: branch, worktreePath: worktreePath, prTitle: title, author: author, isDraft: m.prIsDraft}
 		}
 
 		// PR doesn't exist, create a new one (draft or ready for review based on user selection)
 		prURL, err := m.githubManager.CreatePR(worktreePath, branch, m.baseBranch, title, description, m.prIsDraft)
 		if err != nil {
-			return prCreatedMsg{err: err, branch: branch, worktreePath: worktreePath}
+			return prCreatedMsg{err: err, branch: branch, worktreePath: worktreePath, isDraft: m.prIsDraft}
 		}
 
-		return prCreatedMsg{prURL: prURL, branch: branch, worktreePath: worktreePath, prTitle: title, author: author}
+		return prCreatedMsg{prURL: prURL, branch: branch, worktreePath: worktreePath, prTitle: title, author: author, isDraft: m.prIsDraft}
 	}
 }
 

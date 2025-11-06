@@ -416,6 +416,8 @@ func (m Model) renderModal() string {
 		return m.renderScriptOutputModal()
 	case onboardingModal:
 		return m.renderOnboardingModal()
+	case gitInitModal:
+		return m.renderGitInitModal()
 	}
 	return ""
 }
@@ -2424,6 +2426,36 @@ func (m Model) renderOnboardingModal() string {
 
 	// Center the modal
 	content := modalStyle.Width(60).Render(b.String())
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		content,
+	)
+}
+
+func (m Model) renderGitInitModal() string {
+	var b strings.Builder
+
+	b.WriteString(modalTitleStyle.Render("Git Repository Not Found"))
+	b.WriteString("\n\n")
+
+	// Error message
+	b.WriteString(normalItemStyle.Copy().Foreground(errorColor).Render(m.gitInitError))
+	b.WriteString("\n\n")
+
+	// Buttons
+	yesBtn := "[Y]es - Initialize Git"
+	noBtn := "[N]o - Quit"
+
+	b.WriteString(selectedButtonStyle.Render(yesBtn))
+	b.WriteString("\n")
+	b.WriteString(cancelButtonStyle.Render(noBtn))
+
+	b.WriteString("\n\n")
+	b.WriteString(helpStyle.Render("Y to initialize • N/Esc to quit"))
+
+	// Center the modal
+	content := modalStyle.Width(70).Render(b.String())
 	return lipgloss.Place(
 		m.width, m.height,
 		lipgloss.Center, lipgloss.Center,

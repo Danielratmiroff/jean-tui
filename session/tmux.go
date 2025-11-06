@@ -202,14 +202,8 @@ const jeanTmuxConfig = `
 # WARNING: Do not modify the marker lines above/below - they are used for automatic updates
 # You can safely delete this entire section if you no longer want these settings
 
-# Enable mouse support for scrolling
-set -g mouse on
-
-# Enable mouse scrolling in copy mode
-bind -n WheelUpPane if-shell -F -t = "#{mouse_any_flag}" "send-keys -M" "if -Ft= '#{pane_in_mode}' 'send-keys -M' 'copy-mode -e; send-keys -M'"
-
-# Make scrolling work like in normal terminal
-set -g terminal-overrides 'xterm*:smcup@:rmcup@'
+# Disable mouse support completely
+set -g mouse off
 
 # Enable clickable links (URLs and local filesystem paths)
 set -g allow-passthrough on
