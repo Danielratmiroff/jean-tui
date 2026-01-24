@@ -487,15 +487,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-	case gitRepoOpenedMsg:
-		if msg.err != nil {
-			cmd = m.showErrorNotification("Failed to open repository: " + msg.err.Error(), 4*time.Second)
-			return m, cmd
-		} else {
-			cmd = m.showSuccessNotification("Opened in browser", 3*time.Second)
-			return m, cmd
-		}
-
 	case prCreatedMsg:
 		if msg.err != nil {
 			m.debugLog(fmt.Sprintf("PR creation failed: %v", msg.err))
@@ -1543,15 +1534,6 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.nameInput.Focus()
 			m.nameInput.CursorEnd()
 			return m, nil
-		}
-
-	case "g":
-		// Open git repository in browser
-		if wt := m.selectedWorktree(); wt != nil {
-			return m, tea.Batch(
-				m.showInfoNotification("Opening in browser..."),
-				m.openGitRepo(),
-			)
 		}
 
 	case "K":
