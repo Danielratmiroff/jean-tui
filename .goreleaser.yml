@@ -32,8 +32,8 @@ archives:
 
 release:
   github:
-    owner: coollabsio
-    name: jean
+    owner: Danielratmiroff
+    name: jean-tui
   prerelease: auto
   draft: false
   make_latest: true
