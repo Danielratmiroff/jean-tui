@@ -26,6 +26,7 @@ type Worktree struct {
 	PRs               interface{}      // []config.PRInfo - Pull requests for this branch (loaded from config)
 	LastModified      time.Time        // Last modification time of the worktree directory
 	ClaudeSessionName string           // Sanitized tmux session name for Claude (e.g., "jean-feature-add-status")
+	RecentCommits     []string         // Last 5 commit titles for this worktree
 }
 
 // Manager handles Git worktree operations
@@ -88,6 +89,10 @@ func (m *Manager) parseWorktrees(output string, baseBranch string, lightweight b
 				if modTime, err := m.getWorktreeModTime(current.Path); err == nil {
 					current.LastModified = modTime
 				}
+				// Populate RecentCommits (last 5 commit titles)
+				if commits, err := m.GetRecentCommitTitles(current.Path, 5); err == nil {
+					current.RecentCommits = commits
+				}
 				worktrees = append(worktrees, current)
 				current = Worktree{}
 			}
@@ -120,6 +125,10 @@ func (m *Manager) parseWorktrees(output string, baseBranch string, lightweight b
 		// Populate LastModified time before adding to list
 		if modTime, err := m.getWorktreeModTime(current.Path); err == nil {
 			current.LastModified = modTime
+		}
+		// Populate RecentCommits (last 5 commit titles)
+		if commits, err := m.GetRecentCommitTitles(current.Path, 5); err == nil {
+			current.RecentCommits = commits
 		}
 		worktrees = append(worktrees, current)
 	}

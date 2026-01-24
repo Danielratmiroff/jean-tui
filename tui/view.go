@@ -252,6 +252,22 @@ func (m Model) renderDetails() string {
 		}
 	}
 
+	// Show recent commits
+	if len(wt.RecentCommits) > 0 {
+		b.WriteString("\n")
+		b.WriteString(detailKeyStyle.Render("Recent Commits:"))
+		b.WriteString("\n")
+		for _, commit := range wt.RecentCommits {
+			// Truncate long commit messages
+			display := commit
+			if len(display) > 50 {
+				display = display[:47] + "..."
+			}
+			b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  " + display))
+			b.WriteString("\n")
+		}
+	}
+
 	// Add action hints
 	b.WriteString("\n")
 	b.WriteString(detailKeyStyle.Render("Actions:"))
