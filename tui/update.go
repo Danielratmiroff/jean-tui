@@ -506,7 +506,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Only retry once - if we're already retrying, don't try again
 				if !m.prRetryInProgress {
 					// Check if AI is configured
-					hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+					hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 					aiContentEnabled := m.configManager != nil && m.configManager.GetAICommitEnabled()
 
 					if hasAPIKey && aiContentEnabled && msg.worktreePath != "" && msg.branch != "" {
@@ -578,7 +578,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// AI generation failed - fall back to current name (graceful degradation)
 			cmd = m.showWarningNotification("Using current branch name for PR...")
 			// Still try to generate PR content with AI
-			hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+			hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 			aiContentEnabled := m.configManager != nil && m.configManager.GetAICommitEnabled()
 			if hasAPIKey && aiContentEnabled {
 				return m, tea.Batch(cmd, m.generatePRContent(msg.worktreePath, msg.oldBranchName, m.baseBranch))
@@ -592,7 +592,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Target branch already exists - skip rename and use current name for PR
 			cmd = m.showWarningNotification("Branch name already exists, using current name...")
 			// Still try to generate PR content with AI
-			hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+			hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 			aiContentEnabled := m.configManager != nil && m.configManager.GetAICommitEnabled()
 			if hasAPIKey && aiContentEnabled {
 				return m, tea.Batch(cmd, m.generatePRContent(msg.worktreePath, msg.oldBranchName, m.baseBranch))
@@ -631,7 +631,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Target branch already exists - skip rename and use current name for PR
 			cmd = m.showWarningNotification("Branch name already exists, using current name...")
 			// Still try to generate PR content with AI
-			hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+			hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 			aiContentEnabled := m.configManager != nil && m.configManager.GetAICommitEnabled()
 			if hasAPIKey && aiContentEnabled {
 				return m, tea.Batch(cmd, m.generatePRContent(msg.worktreePath, msg.oldBranchName, m.baseBranch))
@@ -650,7 +650,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Rename succeeded, check if we should generate AI PR content
-		hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+		hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 		aiEnabled := m.configManager != nil && m.configManager.GetAIBranchNameEnabled()
 
 		if hasAPIKey && aiEnabled {
@@ -721,7 +721,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commitBeforePR = false
 
 				// Check if we should do AI renaming
-				hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+				hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 				aiEnabled := m.configManager != nil && m.configManager.GetAIBranchNameEnabled()
 				isRandomName := m.gitManager.IsRandomBranchName(branch)
 				shouldAIRename := hasAPIKey && aiEnabled && isRandomName
@@ -741,7 +741,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 					// Check if AI is enabled for PR content generation
 					aiEnabled := m.configManager != nil &&
-						m.configManager.GetOpenRouterAPIKey() != "" &&
+						m.configManager.GetAnthropicAPIKey() != "" &&
 						m.aiCommitEnabled
 
 					if aiEnabled {
@@ -771,7 +771,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commitBeforePR = false
 
 				// Check if we should do AI renaming
-				hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+				hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 				aiEnabled := m.configManager != nil && m.configManager.GetAIBranchNameEnabled()
 				isRandomName := m.gitManager.IsRandomBranchName(wt.Branch)
 				shouldAIRename := hasAPIKey && aiEnabled && isRandomName
@@ -804,7 +804,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Commit succeeded, now proceed with PR creation
 		// Check if we should do AI renaming first
-		hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+		hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 		aiEnabled := m.configManager != nil && m.configManager.GetAIBranchNameEnabled()
 		isRandomName := m.gitManager.IsRandomBranchName(msg.branch)
 
@@ -823,7 +823,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check if AI is enabled for PR content generation
 			aiEnabled := m.configManager != nil &&
-				m.configManager.GetOpenRouterAPIKey() != "" &&
+				m.configManager.GetAnthropicAPIKey() != "" &&
 				m.aiCommitEnabled
 
 			if aiEnabled {
@@ -1241,7 +1241,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Check AI configuration
-			hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+			hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 			aiEnabled := m.configManager != nil && m.configManager.GetAIBranchNameEnabled()
 			aiContentEnabled := m.configManager != nil && m.configManager.GetAICommitEnabled()
 			hasAI := hasAPIKey && (aiEnabled || aiContentEnabled)
@@ -1291,7 +1291,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Check if AI is enabled for PR content generation
 				aiEnabled := m.configManager != nil &&
-					m.configManager.GetOpenRouterAPIKey() != "" &&
+					m.configManager.GetAnthropicAPIKey() != "" &&
 					m.aiCommitEnabled
 
 				if aiEnabled {
@@ -1654,7 +1654,7 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			// Check AI configuration
-			hasAPIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+			hasAPIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 			aiEnabled := m.configManager != nil && m.configManager.GetAIBranchNameEnabled()
 			aiContentEnabled := m.configManager != nil && m.configManager.GetAICommitEnabled()
 			hasAI := hasAPIKey && (aiEnabled || aiContentEnabled)
@@ -1788,7 +1788,7 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			// Check if AI commit generation is enabled and API key is set
 			aiEnabled := m.configManager.GetAICommitEnabled()
-			apiKey := m.configManager.GetOpenRouterAPIKey()
+			apiKey := m.configManager.GetAnthropicAPIKey()
 
 			if aiEnabled && apiKey != "" {
 				// Auto-generate and auto-commit with AI (no modal shown)
@@ -2405,7 +2405,7 @@ func (m Model) handleRenameModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "g":
 		// AI-generate branch name (only when focused on buttons, not input field)
-		if m.modalFocused > 0 && m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != "" {
+		if m.modalFocused > 0 && m.configManager != nil && m.configManager.GetAnthropicAPIKey() != "" {
 			if wt := m.selectedWorktree(); wt != nil {
 				m.generatingRename = true
 				m.renameSpinnerFrame = 0
@@ -2525,7 +2525,7 @@ func (m Model) handleCommitModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "g":
 		// Generate AI commit message (only if not focused on input field and API key is configured)
-		if m.modalFocused > 0 && m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != "" {
+		if m.modalFocused > 0 && m.configManager != nil && m.configManager.GetAnthropicAPIKey() != "" {
 			if wt := m.selectedWorktree(); wt != nil {
 				m.generatingCommit = true
 				m.spinnerFrame = 0
@@ -2549,7 +2549,7 @@ func (m Model) handleCommitModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			subject := m.commitSubjectInput.Value()
 			if subject == "" {
 				// If AI commit is enabled and API key is configured, try auto-generate
-				if m.configManager != nil && m.configManager.GetAICommitEnabled() && m.configManager.GetOpenRouterAPIKey() != "" {
+				if m.configManager != nil && m.configManager.GetAICommitEnabled() && m.configManager.GetAnthropicAPIKey() != "" {
 					if wt := m.selectedWorktree(); wt != nil {
 						m.generatingCommit = true
 						m.spinnerFrame = 0
@@ -2616,7 +2616,7 @@ func (m Model) handlePRContentModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "g":
 		// Generate AI PR content (only if not focused on input fields and API key is configured)
-		if m.prModalFocused > 1 && m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != "" {
+		if m.prModalFocused > 1 && m.configManager != nil && m.configManager.GetAnthropicAPIKey() != "" {
 			m.generatingPRContent = true
 			m.prSpinnerFrame = 0
 			return m, tea.Batch(
@@ -3419,14 +3419,9 @@ func (m Model) handleAISettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiBranchNameEnabled = !m.aiBranchNameEnabled
 			return m, nil
 		} else if m.aiModalFocusedField == 4 {
-			// Test button
-			apiKey := m.aiAPIKeyInput.Value()
-			if apiKey == "" {
-				return m, m.showWarningNotification("API key cannot be empty - enter key first")
-			}
-			model := m.aiModels[m.aiModelIndex]
-			cmd := m.showInfoNotification("Testing API key...")
-			return m, tea.Batch(cmd, m.testOpenRouterAPIKey(apiKey, model))
+			// Test button - test Claude CLI connection
+			cmd := m.showInfoNotification("Testing Claude CLI connection...")
+			return m, tea.Batch(cmd, m.testClaudeConnection())
 		} else if m.aiModalFocusedField == 5 {
 			// Customize Prompts button
 			m.modal = aiPromptsModal
@@ -3444,10 +3439,10 @@ func (m Model) handleAISettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Save all settings to config
 			var cmd tea.Cmd
 			if m.configManager != nil {
-				if err := m.configManager.SetOpenRouterAPIKey(apiKey); err != nil {
+				if err := m.configManager.SetAnthropicAPIKey(apiKey); err != nil {
 					return m, m.showErrorNotification("Failed to save API key: " + err.Error(), 3*time.Second)
 				}
-				if err := m.configManager.SetOpenRouterModel(m.aiModels[m.aiModelIndex]); err != nil {
+				if err := m.configManager.SetClaudeModel(m.aiModels[m.aiModelIndex]); err != nil {
 					return m, m.showErrorNotification("Failed to save model: " + err.Error(), 3*time.Second)
 				}
 				if err := m.configManager.SetAICommitEnabled(m.aiCommitEnabled); err != nil {
@@ -3474,7 +3469,7 @@ func (m Model) handleAISettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Clear button - remove API key
 			m.aiAPIKeyInput.SetValue("")
 			if m.configManager != nil {
-				if err := m.configManager.SetOpenRouterAPIKey(""); err != nil {
+				if err := m.configManager.SetAnthropicAPIKey(""); err != nil {
 					return m, m.showErrorNotification("Failed to clear API key: " + err.Error(), 3*time.Second)
 				}
 			}

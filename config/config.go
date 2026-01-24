@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"github.com/coollabsio/jean-tui/openrouter"
+
+	"github.com/coollabsio/jean-tui/claude"
 )
 
 // AIPrompts represents customizable AI prompts for various generation tasks
@@ -20,8 +21,8 @@ type Config struct {
 	Repositories        map[string]*RepoConfig `json:"repositories"`
 	LastUpdateCheckTime string                 `json:"lastUpdateCheckTime"` // RFC3339 format
 	DefaultTheme        string                 `json:"default_theme,omitempty"` // Global default theme, "" = matrix
-	OpenRouterAPIKey    string                 `json:"openrouter_api_key,omitempty"` // API key for OpenRouter AI
-	OpenRouterModel     string                 `json:"openrouter_model,omitempty"` // OpenRouter model, "" = default haiku
+	AnthropicAPIKey     string                 `json:"anthropic_api_key,omitempty"` // API key for Anthropic Claude
+	ClaudeModel         string                 `json:"claude_model,omitempty"` // Claude model, "" = default haiku
 	AICommitEnabled     bool                   `json:"ai_commit_enabled,omitempty"` // Enable AI commit message generation
 	AIBranchNameEnabled bool                   `json:"ai_branch_name_enabled,omitempty"` // Enable AI branch name generation
 	DebugLoggingEnabled bool                   `json:"debug_logging_enabled"` // Enable debug logging to temp files
@@ -273,29 +274,36 @@ func (m *Manager) GetGlobalTheme() string {
 	return "coolify"
 }
 
-// GetOpenRouterAPIKey returns the OpenRouter API key
-func (m *Manager) GetOpenRouterAPIKey() string {
-	return m.config.OpenRouterAPIKey
+// GetAnthropicAPIKey returns the Anthropic API key
+// Checks CLAUDE_CODE_OAUTH_TOKEN environment variable first, falls back to config
+func (m *Manager) GetAnthropicAPIKey() string {
+	// Check environment variable first
+	if envKey := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); envKey != "" {
+		return envKey
+	}
+	// Fall back to stored config
+	return m.config.AnthropicAPIKey
 }
 
-// SetOpenRouterAPIKey sets the OpenRouter API key
-func (m *Manager) SetOpenRouterAPIKey(apiKey string) error {
-	m.config.OpenRouterAPIKey = apiKey
+// SetAnthropicAPIKey sets the Anthropic API key
+func (m *Manager) SetAnthropicAPIKey(apiKey string) error {
+	m.config.AnthropicAPIKey = apiKey
 	return m.save()
 }
 
-// GetOpenRouterModel returns the OpenRouter model
-// Returns "openai/gpt-4o-mini" if not set
-func (m *Manager) GetOpenRouterModel() string {
-	if m.config.OpenRouterModel != "" {
-		return m.config.OpenRouterModel
+// GetClaudeModel returns the Claude model
+// Returns the default Haiku model if not set
+// Note: This is kept for backward compatibility but not used by the Claude CLI
+func (m *Manager) GetClaudeModel() string {
+	if m.config.ClaudeModel != "" {
+		return m.config.ClaudeModel
 	}
-	return "openai/gpt-4o-mini"
+	return "claude-haiku-4-5-20251001" // Default model (not used by CLI)
 }
 
-// SetOpenRouterModel sets the OpenRouter model
-func (m *Manager) SetOpenRouterModel(model string) error {
-	m.config.OpenRouterModel = model
+// SetClaudeModel sets the Claude model
+func (m *Manager) SetClaudeModel(model string) error {
+	m.config.ClaudeModel = model
 	return m.save()
 }
 
@@ -494,7 +502,7 @@ func (m *Manager) GetCommitPrompt() string {
 	if m.config.AIPrompts != nil && m.config.AIPrompts.CommitMessage != "" {
 		return m.config.AIPrompts.CommitMessage
 	}
-	return openrouter.GetDefaultCommitPrompt()
+	return claude.GetDefaultCommitPrompt()
 }
 
 // SetCommitPrompt sets the custom commit message prompt
@@ -512,7 +520,7 @@ func (m *Manager) GetBranchNamePrompt() string {
 	if m.config.AIPrompts != nil && m.config.AIPrompts.BranchName != "" {
 		return m.config.AIPrompts.BranchName
 	}
-	return openrouter.GetDefaultBranchNamePrompt()
+	return claude.GetDefaultBranchNamePrompt()
 }
 
 // SetBranchNamePrompt sets the custom branch name prompt
@@ -530,7 +538,7 @@ func (m *Manager) GetPRPrompt() string {
 	if m.config.AIPrompts != nil && m.config.AIPrompts.PRContent != "" {
 		return m.config.AIPrompts.PRContent
 	}
-	return openrouter.GetDefaultPRPrompt()
+	return claude.GetDefaultPRPrompt()
 }
 
 // SetPRPrompt sets the custom PR content prompt

@@ -1,4 +1,4 @@
-package openrouter
+package claude
 
 // Default AI prompts for commit messages, branch names, and PR content
 // These can be overridden by user-customized prompts in the config

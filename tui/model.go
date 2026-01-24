@@ -15,7 +15,7 @@ import (
 	"github.com/coollabsio/jean-tui/git"
 	"github.com/coollabsio/jean-tui/github"
 	"github.com/coollabsio/jean-tui/internal/version"
-	"github.com/coollabsio/jean-tui/openrouter"
+	"github.com/coollabsio/jean-tui/claude"
 	"github.com/coollabsio/jean-tui/session"
 )
 
@@ -143,9 +143,9 @@ type Model struct {
 
 	// AI Settings modal state
 	aiSettingsIndex        int                    // Selected AI setting option index
-	aiAPIKeyInput          textinput.Model        // Input field for OpenRouter API key
+	aiAPIKeyInput          textinput.Model        // Input field for Anthropic API key (optional)
 	aiModelIndex           int                    // Selected model index
-	aiModels               []string               // List of available OpenRouter models
+	aiModels               []string               // List of available Claude models
 	aiCommitEnabled        bool                   // Whether AI commit message generation is enabled
 	aiBranchNameEnabled    bool                   // Whether AI branch name generation is enabled
 	aiModalFocusedField    int                    // Which field in AI settings modal is focused (0-4: api key, model, commit toggle, branch toggle, buttons)
@@ -334,20 +334,11 @@ func NewModel(repoPath string, autoClaude bool) Model {
 		"zed",     // Zed
 	}
 
-	// List of OpenRouter models
+	// List of Claude models (for display purposes, CLI uses its own config)
 	aiModels := []string{
-		"google/gemini-2.5-flash-lite",
-		"google/gemini-2.0-flash",
-		"google/gemini-2.0-flash-exp",
-		"google/gemini-1.5-pro",
-		"google/gemini-1.5-flash",
-		"anthropic/claude-3.5-haiku",
-		"anthropic/claude-3.5-sonnet",
-		"anthropic/claude-3-opus",
-		"openai/gpt-4-turbo",
-		"openai/gpt-4",
-		"openai/gpt-4o-mini",
-		"meta-llama/llama-2-70b-chat",
+		"claude-haiku-4-5-20251001",  // Fast, cheap (default)
+		"claude-sonnet-4-5-20250929", // Balanced
+		"claude-opus-4-5-20251101",   // Most capable
 	}
 
 	m := Model{
@@ -378,14 +369,14 @@ func NewModel(repoPath string, autoClaude bool) Model {
 
 	// Load AI settings from config
 	if configManager != nil {
-		if apiKey := configManager.GetOpenRouterAPIKey(); apiKey != "" {
+		if apiKey := configManager.GetAnthropicAPIKey(); apiKey != "" {
 			m.aiAPIKeyInput.SetValue(apiKey)
 		}
 		m.aiCommitEnabled = configManager.GetAICommitEnabled()
 		m.aiBranchNameEnabled = configManager.GetAIBranchNameEnabled()
 
 		// Set model index based on saved model
-		savedModel := configManager.GetOpenRouterModel()
+		savedModel := configManager.GetClaudeModel()
 		for i, model := range aiModels {
 			if model == savedModel {
 				m.aiModelIndex = i
@@ -1167,14 +1158,9 @@ func (m Model) changeTheme(themeName string) tea.Cmd {
 	}
 }
 
-// generateCommitMessageWithAI generates a commit message using OpenRouter API
+// generateCommitMessageWithAI generates a commit message using Claude CLI
 func (m Model) generateCommitMessageWithAI(worktreePath string) tea.Cmd {
 	return func() tea.Msg {
-		apiKey := m.configManager.GetOpenRouterAPIKey()
-		if apiKey == "" {
-			return commitMessageGeneratedMsg{err: fmt.Errorf("OpenRouter API key not configured")}
-		}
-
 		// Get git status
 		status, err := m.gitManager.GetStatus(worktreePath)
 		if err != nil {
@@ -1203,9 +1189,8 @@ func (m Model) generateCommitMessageWithAI(worktreePath string) tea.Cmd {
 			log = "(unable to get recent commits)"
 		}
 
-		// Call OpenRouter API
-		model := m.configManager.GetOpenRouterModel()
-		client := openrouter.NewClient(apiKey, model)
+		// Call Claude CLI
+		client := claude.NewClient()
 		customPrompt := m.configManager.GetCommitPrompt()
 		subject, err := client.GenerateCommitMessage(status, diff, branch, log, customPrompt)
 		if err != nil {
@@ -1219,11 +1204,6 @@ func (m Model) generateCommitMessageWithAI(worktreePath string) tea.Cmd {
 // generateRenameWithAI generates a branch name suggestion based on git changes
 func (m Model) generateRenameWithAI(worktreePath, baseBranch string) tea.Cmd {
 	return func() tea.Msg {
-		apiKey := m.configManager.GetOpenRouterAPIKey()
-		if apiKey == "" {
-			return renameGeneratedMsg{err: fmt.Errorf("OpenRouter API key not configured")}
-		}
-
 		// Get uncommitted changes
 		diff := ""
 		uncommittedDiff, _ := m.gitManager.GetDiff(worktreePath)
@@ -1240,9 +1220,8 @@ func (m Model) generateRenameWithAI(worktreePath, baseBranch string) tea.Cmd {
 			return renameGeneratedMsg{err: fmt.Errorf("no changes detected to generate branch name")}
 		}
 
-		// Call OpenRouter API
-		model := m.configManager.GetOpenRouterModel()
-		client := openrouter.NewClient(apiKey, model)
+		// Call Claude CLI
+		client := claude.NewClient()
 		customPrompt := m.configManager.GetBranchNamePrompt()
 		name, err := client.GenerateBranchName(diff, customPrompt)
 		if err != nil {
@@ -1256,15 +1235,6 @@ func (m Model) generateRenameWithAI(worktreePath, baseBranch string) tea.Cmd {
 // generateBranchNameForPR generates an AI branch name for PR creation
 func (m Model) generateBranchNameForPR(worktreePath, oldBranch, baseBranch string) tea.Cmd {
 	return func() tea.Msg {
-		apiKey := m.configManager.GetOpenRouterAPIKey()
-		if apiKey == "" {
-			return prBranchNameGeneratedMsg{
-				oldBranchName: oldBranch,
-				worktreePath:  worktreePath,
-				err:           fmt.Errorf("API key not configured"),
-			}
-		}
-
 		// Get diff (uncommitted first, then from base)
 		diff := ""
 		uncommittedDiff, _ := m.gitManager.GetDiff(worktreePath)
@@ -1284,9 +1254,8 @@ func (m Model) generateBranchNameForPR(worktreePath, oldBranch, baseBranch strin
 			}
 		}
 
-		// Call AI
-		model := m.configManager.GetOpenRouterModel()
-		client := openrouter.NewClient(apiKey, model)
+		// Call Claude CLI
+		client := claude.NewClient()
 		customPrompt := m.configManager.GetBranchNamePrompt()
 		newName, err := client.GenerateBranchName(diff, customPrompt)
 
@@ -1350,15 +1319,6 @@ func (m Model) renameBranchForPR(oldName, newName, worktreePath string) tea.Cmd 
 // generatePRContent generates AI-powered PR title and description
 func (m Model) generatePRContent(worktreePath, branchName, baseBranch string) tea.Cmd {
 	return func() tea.Msg {
-		apiKey := m.configManager.GetOpenRouterAPIKey()
-		if apiKey == "" {
-			return prContentGeneratedMsg{
-				worktreePath: worktreePath,
-				branch:       branchName,
-				err:          fmt.Errorf("API key not configured"),
-			}
-		}
-
 		// Get diff (uncommitted first, then from base)
 		diff := ""
 		uncommittedDiff, _ := m.gitManager.GetDiff(worktreePath)
@@ -1378,9 +1338,8 @@ func (m Model) generatePRContent(worktreePath, branchName, baseBranch string) te
 			}
 		}
 
-		// Call AI to generate title and description
-		model := m.configManager.GetOpenRouterModel()
-		client := openrouter.NewClient(apiKey, model)
+		// Call Claude CLI to generate title and description
+		client := claude.NewClient()
 		customPrompt := m.configManager.GetPRPrompt()
 		title, description, err := client.GeneratePRContent(diff, customPrompt)
 
@@ -1394,22 +1353,13 @@ func (m Model) generatePRContent(worktreePath, branchName, baseBranch string) te
 	}
 }
 
-// testOpenRouterAPIKey tests the OpenRouter API key to verify it works
-func (m Model) testOpenRouterAPIKey(apiKey, model string) tea.Cmd {
+// testClaudeConnection tests the Claude CLI connection to verify it works
+func (m Model) testClaudeConnection() tea.Cmd {
 	return func() tea.Msg {
-		if apiKey == "" {
-			return apiKeyTestedMsg{success: false, err: fmt.Errorf("API key is empty")}
-		}
-
 		// Create a test client and make a simple API call
-		client := openrouter.NewClient(apiKey, model)
+		client := claude.NewClient()
 
-		// Make a simple test prompt - use empty custom prompt to use default
-		testStatus := "test status"
-		testDiff := "test content"
-		testBranch := "test-branch"
-		testLog := "test commit"
-		_, err := client.GenerateCommitMessage(testStatus, testDiff, testBranch, testLog, "")
+		err := client.TestConnection()
 		if err != nil {
 			return apiKeyTestedMsg{success: false, err: err}
 		}
@@ -1510,15 +1460,6 @@ func (m Model) fetchRemoteForPR(worktreePath string) tea.Cmd {
 // generateBranchNameForPush generates an AI branch name for push operation
 func (m Model) generateBranchNameForPush(worktreePath, oldBranch, baseBranch string) tea.Cmd {
 	return func() tea.Msg {
-		apiKey := m.configManager.GetOpenRouterAPIKey()
-		if apiKey == "" {
-			return pushBranchNameGeneratedMsg{
-				oldBranchName: oldBranch,
-				worktreePath:  worktreePath,
-				err:           fmt.Errorf("API key not configured"),
-			}
-		}
-
 		// Get diff (uncommitted first, then from base)
 		diff := ""
 		uncommittedDiff, _ := m.gitManager.GetDiff(worktreePath)
@@ -1538,9 +1479,8 @@ func (m Model) generateBranchNameForPush(worktreePath, oldBranch, baseBranch str
 			}
 		}
 
-		// Call AI
-		model := m.configManager.GetOpenRouterModel()
-		client := openrouter.NewClient(apiKey, model)
+		// Call Claude CLI
+		client := claude.NewClient()
 		customPrompt := m.configManager.GetBranchNamePrompt()
 		newName, err := client.GenerateBranchName(diff, customPrompt)
 

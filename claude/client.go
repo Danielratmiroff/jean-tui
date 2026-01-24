@@ -1,68 +1,50 @@
-package openrouter
+package claude
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"os"
+	"os/exec"
 	"strings"
-	"time"
 )
 
-type Client struct {
-	apiKey  string
-	model   string
-	baseURL string
-}
+// Client wraps the Claude CLI for AI operations
+type Client struct{}
 
-type ChatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []ChatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
-}
-
-type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type ChatResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-	} `json:"error"`
-}
-
+// PRContent represents the JSON structure for PR title and description
 type PRContent struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 }
 
-// NewClient creates a new OpenRouter API client
-func NewClient(apiKey, model string) *Client {
-	if model == "" {
-		model = "anthropic/claude-3.5-haiku"
-	}
-	return &Client{
-		apiKey:  apiKey,
-		model:   model,
-		baseURL: "https://openrouter.ai/api/v1",
-	}
+// ClaudeMessage represents a single message in the Claude CLI JSON array output
+type ClaudeMessage struct {
+	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
+	Result  string `json:"result"`
+	Message struct {
+		Model   string `json:"model"`
+		ID      string `json:"id"`
+		Role    string `json:"role"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		StopReason string `json:"stop_reason"`
+	} `json:"message"`
+}
+
+// NewClient creates a new Claude CLI client
+// Claude CLI uses OAuth authentication from CLAUDE_CODE_OAUTH_TOKEN environment variable
+// The model is determined by the Claude CLI configuration
+func NewClient() *Client {
+	return &Client{}
 }
 
 // GenerateCommitMessage generates a one-line conventional commit message based on git context
 // If customPrompt is empty, uses the default prompt
 func (c *Client) GenerateCommitMessage(status, diff, branch, log, customPrompt string) (subject string, err error) {
-	if c.apiKey == "" {
-		return "", fmt.Errorf("OpenRouter API key not configured")
-	}
-
 	// Limit diff to reasonable size to avoid token limits
 	if len(diff) > 5000 {
 		diff = diff[:5000]
@@ -97,10 +79,6 @@ func (c *Client) GenerateCommitMessage(status, diff, branch, log, customPrompt s
 // GenerateBranchName generates a semantic branch name based on git diff
 // If customPrompt is empty, uses the default prompt
 func (c *Client) GenerateBranchName(diff, customPrompt string) (string, error) {
-	if c.apiKey == "" {
-		return "", fmt.Errorf("OpenRouter API key not configured")
-	}
-
 	// Limit diff to reasonable size
 	if len(diff) > 3000 {
 		diff = diff[:3000]
@@ -152,10 +130,6 @@ func (c *Client) GenerateBranchName(diff, customPrompt string) (string, error) {
 // GeneratePRContent generates a PR title and description from a git diff
 // If customPrompt is empty, uses the default prompt
 func (c *Client) GeneratePRContent(diff, customPrompt string) (title, description string, err error) {
-	if c.apiKey == "" {
-		return "", "", fmt.Errorf("OpenRouter API key not configured")
-	}
-
 	// Limit diff to reasonable size
 	if len(diff) > 5000 {
 		diff = diff[:5000]
@@ -192,75 +166,71 @@ func (c *Client) GeneratePRContent(diff, customPrompt string) (title, descriptio
 	return content.Title, content.Description, nil
 }
 
-// callAPI makes a request to the OpenRouter API
+// TestConnection tests the API key by making a simple request
+func (c *Client) TestConnection() error {
+	_, err := c.callAPI("Say 'test' and nothing else.")
+	return err
+}
+
+// DebugMode enables verbose logging to /tmp/jean-claude-debug.log
+var DebugMode = true
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func debugLog(format string, args ...interface{}) {
+	if !DebugMode {
+		return
+	}
+	f, err := os.OpenFile("/tmp/jean-claude-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, format+"\n", args...)
+}
+
+// callAPI makes a request to Claude using the Claude CLI headless mode
 func (c *Client) callAPI(prompt string) (string, error) {
-	req := ChatRequest{
-		Model: c.model,
-		Messages: []ChatMessage{
-			{
-				Role:    "user",
-				Content: prompt,
-			},
-		},
-		Temperature: 0.3, // Low temperature for deterministic output
+	// Build command: claude -p "prompt" --output-format json
+	cmd := exec.Command("claude", "-p", prompt, "--output-format", "json")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	debugLog("=== CLAUDE CLI REQUEST ===")
+	debugLog("Prompt: %s", prompt[:minInt(500, len(prompt))])
+
+	if err := cmd.Run(); err != nil {
+		debugLog("ERROR: %v", err)
+		debugLog("STDERR: %s", stderr.String())
+		return "", fmt.Errorf("claude CLI failed: %w: %s", err, stderr.String())
 	}
 
-	reqBody, err := json.Marshal(req)
+	debugLog("=== CLAUDE CLI RAW RESPONSE ===")
+	debugLog("STDOUT: %s", stdout.String())
+	debugLog("STDERR: %s", stderr.String())
+
+	// Parse the output - could be JSON array or JSONL
+	content, err := c.parseClaudeOutput(stdout.String())
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return "", err
 	}
 
-	httpReq, err := http.NewRequest(
-		"POST",
-		fmt.Sprintf("%s/chat/completions", c.baseURL),
-		bytes.NewReader(reqBody),
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+	debugLog("=== EXTRACTED CONTENT ===")
+	debugLog("Content: %s", content)
+
+	if content == "" {
+		return "", fmt.Errorf("no content in Claude CLI response")
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
-
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("API request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var chatResp ChatResponse
-	if err := json.Unmarshal(body, &chatResp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Check for API error
-	if chatResp.Error != nil {
-		return "", fmt.Errorf("API error: %s", chatResp.Error.Message)
-	}
-
-	// Check for HTTP error status
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("no response from API")
-	}
-
-	// Clean up response: remove markdown code block formatting if present
-	content := chatResp.Choices[0].Message.Content
+	// Clean up markdown code blocks if present
 	content = strings.TrimSpace(content)
-
-	// Remove markdown code block delimiters (```json ... ``` or ``` ... ```)
 	if strings.HasPrefix(content, "```") {
 		// Remove opening ``` with optional language specifier
 		if idx := strings.Index(content, "\n"); idx != -1 {
@@ -277,4 +247,41 @@ func (c *Client) callAPI(prompt string) (string, error) {
 	}
 
 	return content, nil
+}
+
+// parseClaudeOutput extracts content from Claude CLI JSON array output
+func (c *Client) parseClaudeOutput(output string) (string, error) {
+	output = strings.TrimSpace(output)
+
+	// Parse as array of ClaudeMessage structs
+	var messages []ClaudeMessage
+	if err := json.Unmarshal([]byte(output), &messages); err != nil {
+		debugLog("Failed to parse JSON array: %v", err)
+		return "", fmt.Errorf("failed to parse Claude CLI output: %w", err)
+	}
+
+	debugLog("Parsed %d messages from JSON array", len(messages))
+
+	// Process each message to find content
+	for i, msg := range messages {
+		debugLog("Message %d: type=%s, subtype=%s", i, msg.Type, msg.Subtype)
+
+		// Prefer "result" type which contains the final output
+		if msg.Type == "result" && msg.Result != "" {
+			debugLog("Message %d: found result: %s", i, msg.Result[:minInt(100, len(msg.Result))])
+			return msg.Result, nil
+		}
+
+		// Fallback to "assistant" type with message content
+		if msg.Type == "assistant" && len(msg.Message.Content) > 0 {
+			for _, block := range msg.Message.Content {
+				if block.Type == "text" && block.Text != "" {
+					debugLog("Message %d: found assistant text: %s", i, block.Text[:minInt(100, len(block.Text))])
+					return block.Text, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no content found in %d messages", len(messages))
 }

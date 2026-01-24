@@ -977,7 +977,7 @@ func (m Model) renderRenameModal() string {
 	}
 
 	// AI hint
-	hasAIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+	hasAIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 	if hasAIKey {
 		b.WriteString(helpStyle.Render("🤖 Press 'g' to generate branch name from changes"))
 		b.WriteString("\n\n")
@@ -1153,7 +1153,7 @@ func (m Model) renderCommitModal() string {
 	}
 
 	// AI availability indicator
-	hasAIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+	hasAIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 	if hasAIKey {
 		b.WriteString(helpStyle.Render("💡 Press 'g' to generate commit message with AI"))
 		b.WriteString("\n\n")
@@ -1233,7 +1233,7 @@ func (m Model) renderPRContentModal() string {
 	}
 
 	// AI hint
-	hasAIKey := m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != ""
+	hasAIKey := m.configManager != nil && m.configManager.GetAnthropicAPIKey() != ""
 	if hasAIKey {
 		b.WriteString(helpStyle.Render("💡 Press 'g' to auto-generate PR content with AI"))
 		b.WriteString("\n\n")
@@ -1562,9 +1562,9 @@ func (m Model) renderSettingsModal() string {
 		{
 			name:        "AI Integration",
 			key:         "a",
-			description: "Configure OpenRouter API for AI-powered commit messages and branch names",
+			description: "Configure Claude CLI for AI-powered commit messages and branch names",
 			getCurrent: func() string {
-				if m.configManager != nil && m.configManager.GetOpenRouterAPIKey() != "" {
+				if m.configManager != nil && m.configManager.GetAnthropicAPIKey() != "" {
 					return "Configured"
 				}
 				return "Not configured"
@@ -1637,7 +1637,7 @@ func (m Model) renderAISettingsModal() string {
 	b.WriteString("\n\n")
 
 	// API Key input
-	apiKeyLabel := "OpenRouter API Key:"
+	apiKeyLabel := "API Key (optional, uses CLAUDE_CODE_OAUTH_TOKEN):"
 	if m.aiModalFocusedField == 0 {
 		apiKeyLabel = selectedItemStyle.Render(apiKeyLabel)
 	} else {
