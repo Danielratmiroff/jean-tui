@@ -361,7 +361,6 @@ func (m Model) renderMinimalHelpBar() string {
 		"p push",
 		"P create PR",
 		"L local merge",
-		"g github",
 		"h help",
 		"q quit",
 	}
