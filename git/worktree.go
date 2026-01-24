@@ -27,6 +27,7 @@ type Worktree struct {
 	PRs               interface{}      // []config.PRInfo - Pull requests for this branch (loaded from config)
 	LastModified      time.Time        // Last modification time of the worktree directory
 	ClaudeSessionName string           // Sanitized tmux session name for Claude (e.g., "jean-feature-add-status")
+	RecentCommits     []string         // Last 5 commit titles for this worktree
 }
 
 // Manager handles Git worktree operations
@@ -89,6 +90,10 @@ func (m *Manager) parseWorktrees(output string, baseBranch string, lightweight b
 				if modTime, err := m.getWorktreeModTime(current.Path); err == nil {
 					current.LastModified = modTime
 				}
+				// Populate RecentCommits (last 5 commit titles)
+				if commits, err := m.GetRecentCommitTitles(current.Path, 5); err == nil {
+					current.RecentCommits = commits
+				}
 				worktrees = append(worktrees, current)
 				current = Worktree{}
 			}
@@ -121,6 +126,10 @@ func (m *Manager) parseWorktrees(output string, baseBranch string, lightweight b
 		// Populate LastModified time before adding to list
 		if modTime, err := m.getWorktreeModTime(current.Path); err == nil {
 			current.LastModified = modTime
+		}
+		// Populate RecentCommits (last 5 commit titles)
+		if commits, err := m.GetRecentCommitTitles(current.Path, 5); err == nil {
+			current.RecentCommits = commits
 		}
 		worktrees = append(worktrees, current)
 	}
@@ -1293,6 +1302,25 @@ func (m *Manager) GetRecentCommits(worktreePath string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+// GetRecentCommitTitles returns the last N commit titles (subjects only, no hashes)
+func (m *Manager) GetRecentCommitTitles(worktreePath string, count int) ([]string, error) {
+	cmd := exec.Command("git", "-C", worktreePath, "log", "--format=%s", fmt.Sprintf("-%d", count))
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	// Filter empty lines
+	var commits []string
+	for _, line := range lines {
+		if line != "" {
+			commits = append(commits, line)
+		}
+	}
+	return commits, nil
 }
 
 // convertSSHToHTTPS converts SSH git URL to HTTPS format
