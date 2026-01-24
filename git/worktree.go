@@ -1270,3 +1270,21 @@ func (m *Manager) GetRecentCommits(worktreePath string) (string, error) {
 
 	return strings.TrimSpace(string(output)), nil
 }
+
+// GetRecentCommitTitles returns the last N commit titles for a worktree
+func (m *Manager) GetRecentCommitTitles(worktreePath string, count int) ([]string, error) {
+	cmd := exec.Command("git", "-C", worktreePath, "log", "--format=%s", fmt.Sprintf("-%d", count))
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent commit titles: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var titles []string
+	for _, line := range lines {
+		if line != "" {
+			titles = append(titles, line)
+		}
+	}
+	return titles, nil
+}
