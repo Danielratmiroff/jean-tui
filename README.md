@@ -30,7 +30,7 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and designed
 ### Quick Install (Recommended)
 
 ```bash
-curl -fsSL https://github.com/coollabsio/jean-tui/raw/main/install.sh | bash
+curl -fsSL https://github.com/Danielratmiroff/jean-tui/raw/main/install.sh | bash
 ```
 
 Or with Go 1.21+:
