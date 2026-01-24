@@ -95,7 +95,7 @@ detect_system() {
 download_binary() {
     print_header "Downloading binary from GitHub releases..."
 
-    REPO="coollabsio/jean-tui"
+    REPO="Danielratmiroff/jean-tui"
 
     # Use specified version or fetch latest
     if [[ -z "$REQUESTED_VERSION" ]]; then
