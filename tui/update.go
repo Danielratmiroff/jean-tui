@@ -418,7 +418,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Track the renamed branch for auto-selection after reload
 			m.lastRenamedBranch = msg.newBranch
-			// Rename tmux sessions to match the new branch name
+			// Rename sessions to match the new branch name
 			// Reload worktree list to update the UI
 			return m, tea.Batch(
 				cmd,
@@ -667,7 +667,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prTitleInput.Focus()
 			m.prDescriptionInput.SetValue("")
 
-			// Rename tmux sessions
+			// Rename sessions
 			cmd = m.renameSessionsForBranch(msg.oldBranchName, msg.newBranchName)
 			return m, cmd
 		}
@@ -1205,17 +1205,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiPromptsStatusTime = time.Now()
 		return m, cmd
 
-	case tmuxConfigInstalledMsg:
-		if msg.err != nil {
-			return m, m.showErrorNotification("Failed to install tmux config: "+msg.err.Error(), 4*time.Second)
-		}
-		// Mark onboarding as completed
-		if err := m.configManager.SetOnboarded(); err != nil {
-			m.debugLog(fmt.Sprintf("Failed to save onboarding status: %v", err))
-		}
-		m.modal = noModal
-		return m, m.showSuccessNotification("✅ Tmux config installed! Restart tmux or run 'tmux source ~/.tmux.conf'", 4*time.Second)
-
 	case prFetchedForCreationMsg:
 		// Handle fetch completion before PR creation
 		m.prFetchingForCreation = false
@@ -1601,13 +1590,6 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settingsIndex = 0
 		return m, nil
 
-	case "S":
-		// Open session list modal (Shift+S)
-		m.modal = sessionListModal
-		m.modalFocused = 0
-		m.sessionIndex = 0
-		return m, m.loadSessions()
-
 	case "u":
 		// Update from base branch (pull/merge base branch changes)
 		if wt := m.selectedWorktree(); wt != nil {
@@ -1891,9 +1873,6 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case checkoutBranchModal:
 		return m.handleCheckoutBranchModalInput(msg)
 
-	case sessionListModal:
-		return m.handleSessionListModalInput(msg)
-
 	case renameModal:
 		return m.handleRenameModalInput(msg)
 
@@ -1911,9 +1890,6 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case aiSettingsModal:
 		return m.handleAISettingsModalInput(msg)
-
-	case tmuxConfigModal:
-		return m.handleTmuxConfigModalInput(msg)
 
 	case commitModal:
 		return m.handleCommitModalInput(msg)
@@ -2053,7 +2029,7 @@ func (m Model) handleSearchBasedModalInput(msg tea.KeyMsg, config searchModalCon
 }
 
 // handleListSelectionModalInput is a shared handler for modals with simple list selection
-// Used by: sessionListModal, editorSelectModal
+// Used by: editorSelectModal
 func (m Model) handleListSelectionModalInput(msg tea.KeyMsg, config listSelectionConfig) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
@@ -2329,49 +2305,6 @@ func (m Model) handleCheckoutBranchModalInput(msg tea.KeyMsg) (tea.Model, tea.Cm
 		},
 	}
 	return m.handleSearchBasedModalInput(msg, config)
-}
-
-func (m Model) handleSessionListModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	config := listSelectionConfig{
-		getCurrentIndex: func() int { return m.sessionIndex },
-		getItemCount:    func(m Model) int { return len(m.sessions) },
-		incrementIndex:  func(m *Model) { m.sessionIndex++ },
-		decrementIndex:  func(m *Model) { m.sessionIndex-- },
-		onConfirm: func(m Model) (tea.Model, tea.Cmd) {
-			if m.sessionIndex >= 0 && m.sessionIndex < len(m.sessions) {
-				sess := m.sessions[m.sessionIndex]
-				// Attach via tmux
-				if err := m.sessionManager.Attach(sess.Name); err != nil {
-					m.showErrorNotification("Failed to attach to session", 3*time.Second)
-					return m, nil
-				}
-				return m, tea.Quit
-			}
-			return m, nil
-		},
-		onCancel: func(m Model) (tea.Model, tea.Cmd) {
-			// Close modal without clearing notifications - let them auto-clear via timer
-			m.modal = noModal
-			return m, nil
-		},
-		onCustomKey: func(m Model, key string) (tea.Model, tea.Cmd) {
-			if key == "d" && m.sessionIndex >= 0 && m.sessionIndex < len(m.sessions) {
-				// Kill selected session
-				sess := m.sessions[m.sessionIndex]
-				if err := m.sessionManager.Kill(sess.Name); err != nil {
-					return m, m.showErrorNotification("Failed to kill session", 3*time.Second)
-				} else {
-					// Batch notification with session reload
-					return m, tea.Batch(
-						m.showSuccessNotification("Session killed", 3*time.Second),
-						m.loadSessions(),
-					)
-				}
-			}
-			return m, nil
-		},
-	}
-	return m.handleListSelectionModalInput(msg, config)
 }
 
 func (m Model) handleRenameModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -3141,7 +3074,7 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down":
-		if m.settingsIndex < 6 { // Now 7 settings (editor, theme, base branch, tmux config, AI integration, debug logs, PR default state)
+		if m.settingsIndex < 5 { // 6 settings (editor, theme, base branch, AI integration, debug logs, PR default state)
 			m.settingsIndex++
 		}
 
@@ -3152,7 +3085,7 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsModalInput(msg)
 
 	case "h":
-		// Quick key for Theme (h for "theme" - using h since t is taken for Tmux)
+		// Quick key for Theme
 		m.settingsIndex = 1
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
 		return m.handleSettingsModalInput(msg)
@@ -3163,27 +3096,21 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
 		return m.handleSettingsModalInput(msg)
 
-	case "t":
-		// Quick key for Tmux Config
-		m.settingsIndex = 3
-		msg = tea.KeyMsg{Type: tea.KeyEnter}
-		return m.handleSettingsModalInput(msg)
-
 	case "a":
 		// Quick key for AI Integration
-		m.settingsIndex = 4
+		m.settingsIndex = 3
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
 		return m.handleSettingsModalInput(msg)
 
 	case "d":
 		// Quick key for Debug Logs
-		m.settingsIndex = 5
+		m.settingsIndex = 4
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
 		return m.handleSettingsModalInput(msg)
 
 	case "p":
 		// Quick key for PR Default State
-		m.settingsIndex = 6
+		m.settingsIndex = 5
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
 		return m.handleSettingsModalInput(msg)
 
@@ -3242,12 +3169,6 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadBranches
 
 		case 3:
-			// Tmux config setting - open tmux config modal
-			m.modal = tmuxConfigModal
-			m.modalFocused = 0
-			return m, nil
-
-		case 4:
 			// AI Integration setting - open AI settings modal
 			m.modal = aiSettingsModal
 			m.modalFocused = 0
@@ -3256,7 +3177,7 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiModalStatus = "" // Clear any previous status
 			return m, nil
 
-		case 5:
+		case 4:
 			// Debug Logs setting - toggle debug logging
 			if m.configManager != nil {
 				enabled := m.configManager.GetDebugLoggingEnabled()
@@ -3274,7 +3195,7 @@ func (m Model) handleSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case 6:
+		case 5:
 			// PR Default State setting - open PR state settings modal
 			m.modal = prStateSettingsModal
 			m.prStateSettingsCursor = 0
@@ -3300,7 +3221,7 @@ func (m Model) handlePRStateSettingsModalInput(msg tea.KeyMsg) (tea.Model, tea.C
 	case "esc":
 		// Close PR state settings modal and return to settings
 		m.modal = settingsModal
-		m.settingsIndex = 6 // Go back to PR Default State option in settings
+		m.settingsIndex = 5 // Go back to PR Default State option in settings
 		return m, nil
 
 	case "up":
@@ -3565,85 +3486,6 @@ func (m *Model) updateAIPromptsInputFocus() {
 	}
 }
 
-func (m Model) handleTmuxConfigModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q":
-		m.modal = settingsModal
-		return m, nil
-
-	case "tab", "shift+tab":
-		// Check if config exists to determine button count
-		hasConfig := false
-		if m.sessionManager != nil {
-			installed, _ := m.sessionManager.HasJeanTmuxConfig()
-			hasConfig = installed
-		}
-
-		// If config exists: Update (0), Remove (1), Cancel (2) = 3 buttons
-		// If not exists: Install (0), Cancel (1) = 2 buttons
-		if hasConfig {
-			m.modalFocused = (m.modalFocused + 1) % 3
-		} else {
-			m.modalFocused = (m.modalFocused + 1) % 2
-		}
-		return m, nil
-
-	case "enter":
-		if m.sessionManager == nil {
-			m.modal = settingsModal
-			return m, nil
-		}
-
-		hasConfig, err := m.sessionManager.HasJeanTmuxConfig()
-		if err != nil {
-			m.showErrorNotification("Error checking tmux config: " + err.Error(), 3*time.Second)
-			m.modal = settingsModal
-			return m, nil
-		}
-
-		if hasConfig {
-			// Config exists: Update (0), Remove (1), Cancel (2)
-			switch m.modalFocused {
-			case 0:
-				// Update button - reinstalls config (remove + add)
-				if err := m.sessionManager.AddJeanTmuxConfig(); err != nil {
-					m.showErrorNotification("Failed to update tmux config: " + err.Error(), 3*time.Second)
-				} else {
-					m.showSuccessNotification("jean tmux config updated! New tmux sessions will use the updated config.", 3*time.Second)
-				}
-			case 1:
-				// Remove button
-				if err := m.sessionManager.RemoveJeanTmuxConfig(); err != nil {
-					m.showErrorNotification("Failed to remove tmux config: " + err.Error(), 3*time.Second)
-				} else {
-					m.showSuccessNotification("jean tmux config removed. New tmux sessions will use your default config.", 3*time.Second)
-				}
-			case 2:
-				// Cancel button - do nothing
-			}
-		} else {
-			// Config doesn't exist: Install (0), Cancel (1)
-			switch m.modalFocused {
-			case 0:
-				// Install button
-				if err := m.sessionManager.AddJeanTmuxConfig(); err != nil {
-					m.showErrorNotification("Failed to add tmux config: " + err.Error(), 3*time.Second)
-				} else {
-					m.showSuccessNotification("jean tmux config installed! New tmux sessions will use this config.", 3*time.Second)
-				}
-			case 1:
-				// Cancel button - do nothing
-			}
-		}
-
-		// Return to settings modal
-		m.modal = settingsModal
-		return m, nil
-	}
-
-	return m, nil
-}
-
 // buildRefreshStatusMessage constructs a detailed status message based on refresh results
 func buildRefreshStatusMessage(msg refreshWithPullMsg) string {
 	// If everything was already up to date
@@ -3684,34 +3526,13 @@ func buildRefreshStatusMessage(msg refreshWithPullMsg) string {
 
 func (m Model) handleOnboardingModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
-		// Skip onboarding
+	case "esc", "enter":
+		// Complete onboarding
 		if err := m.configManager.SetOnboarded(); err != nil {
 			m.debugLog(fmt.Sprintf("Failed to save onboarding status: %v", err))
 		}
 		m.modal = noModal
 		return m, nil
-
-	case "tab", "left", "right":
-		// Toggle between "Install" and "Skip" buttons
-		m.onboardingFocused = (m.onboardingFocused + 1) % 2
-		return m, nil
-
-	case "enter":
-		if m.onboardingFocused == 0 {
-			// Install tmux config
-			return m, func() tea.Msg {
-				err := m.sessionManager.AddJeanTmuxConfig()
-				return tmuxConfigInstalledMsg{err: err}
-			}
-		} else {
-			// Skip - mark onboarding as completed
-			if err := m.configManager.SetOnboarded(); err != nil {
-				m.debugLog(fmt.Sprintf("Failed to save onboarding status: %v", err))
-			}
-			m.modal = noModal
-			return m, nil
-		}
 	}
 
 	return m, nil

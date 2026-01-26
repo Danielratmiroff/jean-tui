@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	CliVersion    = "0.1.16"
+	CliVersion    = "0.1.17"
 	CheckInterval = 10 * time.Minute
 	repoOwner     = "Danielratmiroff"
 	repoName      = "jean-tui"

@@ -38,12 +38,10 @@ const (
 	deleteModal
 	branchSelectModal
 	checkoutBranchModal
-	sessionListModal
 	renameModal
 	changeBaseBranchModal
 	editorSelectModal
 	settingsModal
-	tmuxConfigModal
 	commitModal
 	helperModal
 	themeSelectModal
@@ -831,7 +829,7 @@ func (m Model) deleteWorktree(path, branch string, force bool) tea.Cmd {
 			_ = m.configManager.CleanupBranch(m.repoPath, branch) // Ignore error, not critical
 		}
 
-		// Then kill the associated tmux session if it exists
+		// Cleanup session-related data (session name is still calculated for legacy reasons)
 		repoName := filepath.Base(m.repoPath)
 		sessionName := m.sessionManager.SanitizeName(repoName, branch)
 		_ = m.sessionManager.Kill(sessionName) // Ignore error if session doesn't exist
@@ -883,7 +881,7 @@ func (m Model) ensureWorktreeExists(worktreePath, branch string) tea.Cmd {
 func (m Model) renameBranch(oldName, newName, worktreePath string) tea.Cmd {
 	return func() tea.Msg {
 		// Rename the git branch only - keep the directory path unchanged
-		// This prevents breaking active Claude CLI sessions and tmux sessions
+		// This prevents breaking active Claude CLI sessions
 		// The UI displays branch names (not directory names), so this is transparent to users
 		err := m.gitManager.RenameBranch(oldName, newName)
 		if err != nil {
@@ -1631,7 +1629,7 @@ func (m Model) GetConfigManager() *config.Manager {
 	return m.configManager
 }
 
-// loadSessions loads tmux sessions for the current repository only
+// loadSessions loads sessions for the current repository (returns empty list, kept for compatibility)
 func (m Model) loadSessions() tea.Cmd {
 	return func() tea.Msg {
 		sessions, err := m.sessionManager.List(m.repoPath)
@@ -2093,7 +2091,3 @@ func (m Model) checkOnboardingStatus() tea.Cmd {
 	}
 }
 
-// Message type for tmux config installation from onboarding
-type tmuxConfigInstalledMsg struct {
-	err error
-}

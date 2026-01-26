@@ -44,7 +44,7 @@ func main() {
 	if runtime.GOOS == "windows" {
 		if !isRunningInWSL() {
 			fmt.Fprintf(os.Stderr, "Error: jean requires WSL2 on Windows\n\n")
-			fmt.Fprintf(os.Stderr, "jean depends on tmux and bash/zsh/fish, which are not available on native Windows.\n")
+			fmt.Fprintf(os.Stderr, "jean depends on wezterm and bash/zsh/fish, which are not available on native Windows.\n")
 			fmt.Fprintf(os.Stderr, "Please install and use WSL2 (Windows Subsystem for Linux 2) to run Jean.\n\n")
 			fmt.Fprintf(os.Stderr, "For installation instructions, see:\n")
 			fmt.Fprintf(os.Stderr, "  https://docs.microsoft.com/en-us/windows/wsl/install\n")
@@ -89,7 +89,7 @@ func main() {
 
 	// Parse flags
 	pathFlag := flag.String("path", ".", "Path to git repository (default: current directory)")
-	noClaudeFlag := flag.Bool("no-claude", false, "Don't auto-start Claude CLI in tmux session")
+	noClaudeFlag := flag.Bool("no-claude", false, "Don't auto-start Claude CLI in wezterm tab")
 	versionFlag := flag.Bool("version", false, "Print version and exit")
 	helpFlag := flag.Bool("help", false, "Show help")
 
@@ -351,8 +351,8 @@ func getRCFileForShell(shell install.Shell, homeDir string) string {
 func printHelp() {
 	fmt.Printf(`jean - AI-Powered Git Worktree TUI with Claude Code Support v%s
 
-A powerful terminal user interface for managing Git worktrees with integrated tmux
-session management, AI-powered workflows, GitHub PR automation, and Claude Code
+A powerful terminal user interface for managing Git worktrees with integrated wezterm
+tab management, AI-powered workflows, GitHub PR automation, and Claude Code
 integration across multiple branches effortlessly.
 
 USAGE:
@@ -367,7 +367,7 @@ COMMANDS:
 
 MAIN OPTIONS:
     -path <path>    Path to git repository (default: current directory)
-    -no-claude      Don't auto-start Claude CLI in tmux session
+    -no-claude      Don't auto-start Claude CLI in wezterm tab
     -help           Show this help message
     -version        Print version and exit
 

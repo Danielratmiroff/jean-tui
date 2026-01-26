@@ -17,9 +17,10 @@ jean() {
     fi
 
     if [ "$debug_enabled" = "true" ]; then
-    echo "DEBUG wrapper: jean function called with args: $@" >> "$debug_log"
+        echo "DEBUG wrapper: jean function called with args: $@" >> "$debug_log"
     fi
-    # Loop until user explicitly quits jean (not just detaches from tmux)
+
+    # Loop until user explicitly quits jean
     while true; do
         # Save current PATH to restore it later
         local saved_path="$PATH"
@@ -38,120 +39,101 @@ jean() {
 
         # Check if switch info was written
         if [ -f "$temp_file" ] && [ -s "$temp_file" ]; then
-        if [ "$debug_enabled" = "true" ]; then
-        echo "DEBUG wrapper: switch file exists and has content" >> "$debug_log"
-        fi
-        # Read the switch info: path|branch|auto-claude|target-window|script-command|claude-session-name|is-claude-initialized
-        local switch_info=$(cat "$temp_file")
-        if [ "$debug_enabled" = "true" ]; then
-        echo "DEBUG wrapper: switch_info=$switch_info" >> "$debug_log"
-        fi
-        # Only remove if it's in /tmp (safety check)
-        if [[ "$temp_file" == /tmp/* ]] || [[ "$temp_file" == /var/folders/* ]]; then
-            rm "$temp_file"
-        fi
-
-        # Parse the info (using worktree_path instead of path to avoid PATH conflict)
-        IFS='|' read -r worktree_path branch auto_claude target_window script_command claude_session_name is_claude_initialized <<< "$switch_info"
-
-        # Check if we got valid data (has at least two pipes)
-        if [[ "$switch_info" == *"|"*"|"* ]]; then
-            # Check if tmux is available
-            if ! command -v tmux >/dev/null 2>&1; then
-                # No tmux, just cd
-                cd "$worktree_path" || return
-                echo "Switched to worktree: $branch (no tmux)"
-                return
+            if [ "$debug_enabled" = "true" ]; then
+                echo "DEBUG wrapper: switch file exists and has content" >> "$debug_log"
+            fi
+            # Read the switch info: path|branch|auto-claude|target-window|script-command|claude-session-name|is-claude-initialized
+            local switch_info=$(cat "$temp_file")
+            if [ "$debug_enabled" = "true" ]; then
+                echo "DEBUG wrapper: switch_info=$switch_info" >> "$debug_log"
+            fi
+            # Only remove if it's in /tmp (safety check)
+            if [[ "$temp_file" == /tmp/* ]] || [[ "$temp_file" == /var/folders/* ]]; then
+                rm "$temp_file"
             fi
 
-            # Use the pre-sanitized session name from jean (includes repo basename)
-            # Format: jean-<repo>-<branch>
-            local session_name="$claude_session_name"
+            # Parse the info (using worktree_path instead of path to avoid PATH conflict)
+            IFS='|' read -r worktree_path branch auto_claude target_window script_command claude_session_name is_claude_initialized <<< "$switch_info"
 
-            # If session name is empty (older version or fallback), generate it from branch
-            if [ -z "$session_name" ]; then
-                session_name="jean-${branch//[^a-zA-Z0-9\-_]/-}"
-                session_name="${session_name//--/-}"
-                session_name="${session_name#-}"
-                session_name="${session_name%-}"
-            fi
+            # Check if we got valid data (has at least two pipes)
+            if [[ "$switch_info" == *"|"*"|"* ]]; then
+                # Check if inside wezterm and wezterm CLI is available
+                if [ -n "$WEZTERM_PANE" ] && command -v wezterm >/dev/null 2>&1; then
+                    if [ "$debug_enabled" = "true" ]; then
+                        echo "DEBUG wrapper: Inside wezterm, target_window=$target_window" >> "$debug_log"
+                    fi
 
-            # Check if already in a tmux session and if it's the same session we want
-            if [ -n "$TMUX" ]; then
-                # Get current tmux session name
-                local current_session=$(tmux display-message -p '#S')
-                if [ "$current_session" = "$session_name" ]; then
-                    # Already in the correct session, just cd
-                    cd "$worktree_path" || return
-                    echo "Switched to worktree: $branch"
-                    return
-                fi
-                # Different session - fall through to switch to it
-            fi
-
-            # Set window index based on target window
-            # Note: with base-index 1, windows are 1, 2, 3... instead of 0, 1, 2...
-            local window_index="1"
-            if [ "$target_window" = "claude" ]; then
-                window_index="2"
-            fi
-
-            # Check if session exists
-            if tmux has-session -t "=$session_name" 2>/dev/null; then
-                # Session exists - check if target window exists
-                if ! tmux list-windows -t "$session_name" -F "#{window_index}:#{window_name}" | grep -q "^${window_index}:"; then
-                    # Target window doesn't exist, create it
                     if [ "$target_window" = "claude" ]; then
-                        # Create claude window with claude command
+                        # Claude tab
                         if command -v claude >/dev/null 2>&1; then
                             if [ "$is_claude_initialized" = "true" ]; then
                                 # Try with --continue first, fallback to fresh start if it fails
-                                tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude" "claude --add-dir \"$worktree_path\" --continue --permission-mode plan || claude --add-dir \"$worktree_path\" --permission-mode plan"
+                                wezterm cli spawn --cwd "$worktree_path" -- bash -c "claude --add-dir \"$worktree_path\" --continue --permission-mode plan || claude --add-dir \"$worktree_path\" --permission-mode plan"
                             else
-                                tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude" "claude --add-dir \"$worktree_path\" --permission-mode plan"
+                                wezterm cli spawn --cwd "$worktree_path" -- claude --add-dir "$worktree_path" --permission-mode plan
                             fi
                         else
                             # Fallback to shell if claude not available
-                            tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude"
+                            wezterm cli spawn --cwd "$worktree_path"
                         fi
                     else
-                        # Create terminal window
-                        tmux new-window -t "$session_name:1" -c "$worktree_path" -n "terminal"
+                        # Terminal tab
+                        wezterm cli spawn --cwd "$worktree_path"
                     fi
-                fi
-                # Attach to target window
-                tmux attach-session -t "$session_name:${window_index}"
-                continue
-            else
-                # Create new session with both windows
-                if [ "$debug_enabled" = "true" ]; then
-                    echo "DEBUG wrapper: Creating new session: $session_name" >> "$debug_log"
-                fi
-                # Window 1: terminal (always created) - base-index 1 makes first window = 1
-                tmux new-session -d -s "$session_name" -c "$worktree_path" -n "terminal"
+                    continue
+                else
+                    # Not in wezterm - cd and optionally run claude
+                    cd "$worktree_path" || return
+                    if [ "$debug_enabled" = "true" ]; then
+                        echo "DEBUG wrapper: No wezterm, cd to $worktree_path, target=$target_window" >> "$debug_log"
+                    fi
 
-                # Window 2: claude (if auto-claude is true)
-                if [ "$auto_claude" = "true" ]; then
-                    if command -v claude >/dev/null 2>&1; then
-                        if [ "$is_claude_initialized" = "true" ]; then
-                            # Try with --continue first, fallback to fresh start if it fails
-                            tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude" "claude --add-dir \"$worktree_path\" --continue --permission-mode plan || claude --add-dir \"$worktree_path\" --permission-mode plan"
+                    # Colors
+                    local GREEN='\033[0;32m'
+                    local CYAN='\033[0;36m'
+                    local MAGENTA='\033[0;35m'
+                    local YELLOW='\033[1;33m'
+                    local BOLD='\033[1m'
+                    local NC='\033[0m' # No Color
+
+                    if [ "$target_window" = "claude" ]; then
+                        if command -v claude >/dev/null 2>&1; then
+                            echo ""
+                            echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                            echo -e "${BOLD}${CYAN}  🤖 Claude Session${NC}"
+                            echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                            echo -e "  ${GREEN}Branch:${NC}    ${BOLD}$branch${NC}"
+                            echo -e "  ${GREEN}Path:${NC}      $worktree_path"
+                            if [ "$is_claude_initialized" = "true" ]; then
+                                echo -e "  ${GREEN}Status:${NC}    ${YELLOW}Resuming session...${NC}"
+                            else
+                                echo -e "  ${GREEN}Status:${NC}    ${CYAN}Starting new session...${NC}"
+                            fi
+                            echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                            echo ""
+                            if [ "$is_claude_initialized" = "true" ]; then
+                                claude --add-dir "$worktree_path" --continue --permission-mode plan || claude --add-dir "$worktree_path" --permission-mode plan
+                            else
+                                claude --add-dir "$worktree_path" --permission-mode plan
+                            fi
                         else
-                            tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude" "claude --add-dir \"$worktree_path\" --permission-mode plan"
+                            echo -e "${YELLOW}⚠ Claude not found, switched to: ${BOLD}$branch${NC}"
                         fi
                     else
-                        # Fallback: create window with shell
-                        tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude"
+                        echo ""
+                        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                        echo -e "${BOLD}${CYAN}  📁 Terminal Session${NC}"
+                        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                        echo -e "  ${GREEN}Branch:${NC}    ${BOLD}$branch${NC}"
+                        echo -e "  ${GREEN}Path:${NC}      $worktree_path"
+                        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                        echo ""
                     fi
+                    return
                 fi
-
-                # Attach to target window
-                tmux attach-session -t "$session_name:${window_index}"
-                continue
+            else
+                return 1
             fi
-        else
-            return 1
-        fi
         else
             # No switch file, user quit jean without selecting a worktree
             # Only remove if it's in /tmp (safety check)
@@ -180,7 +162,7 @@ function jean
         end
     end
 
-    # Loop until user explicitly quits jean (not just detaches from tmux)
+    # Loop until user explicitly quits jean
     while true
         # Create a temp file for communication
         set temp_file (mktemp)
@@ -208,100 +190,69 @@ function jean
                 if test (count $parts) -ge 4
                     set target_window $parts[4]
                 end
-                set claude_session_name ""
-                if test (count $parts) -ge 6
-                    set claude_session_name $parts[6]
-                end
                 set is_claude_initialized "false"
                 if test (count $parts) -ge 7
                     set is_claude_initialized $parts[7]
                 end
 
-                # Check if tmux is available
-                if not command -v tmux &> /dev/null
-                    # No tmux, just cd
-                    cd $worktree_path
-                    echo "Switched to worktree: $branch (no tmux)"
-                    return
-                end
-
-                # Use the pre-sanitized session name from jean (includes repo basename)
-                # Format: jean-<repo>-<branch>
-                set session_name "$claude_session_name"
-
-                # If session name is empty (older version or fallback), generate it from branch
-                if test -z "$session_name"
-                    set session_name "jean-"(string replace -ra '[^a-zA-Z0-9\-_]' '-' $branch)
-                    set session_name (string replace -ra '--+' '-' $session_name)
-                    set session_name (string trim -c '-' $session_name)
-                end
-
-                # Check if already in a tmux session
-                if test -n "$TMUX"
-                    # Already in tmux, just cd
-                    cd $worktree_path
-                    echo "Switched to worktree: $branch"
-                    echo "Note: Already in tmux. Session: $session_name would be available outside tmux."
-                    return
-                end
-
-                # Set window index based on target window
-                # Note: with base-index 1, windows are 1, 2, 3... instead of 0, 1, 2...
-                set window_index "1"
-                if test "$target_window" = "claude"
-                    set window_index "2"
-                end
-
-                # Check if session exists
-                if tmux has-session -t "=$session_name" 2>/dev/null
-                    # Session exists - check if target window exists
-                    set window_exists (tmux list-windows -t "$session_name" -F "#{window_index}:#{window_name}" | grep "^${window_index}:" | wc -l)
-                    if test $window_exists -eq 0
-                        # Target window doesn't exist, create it
-                        if test "$target_window" = "claude"
-                            # Create claude window
-                            if command -v claude &> /dev/null
-                                set claude_args "--add-dir \"$worktree_path\" --permission-mode plan"
-                                if test "$is_claude_initialized" = "true"
-                                    # Try with --continue first, fallback to fresh start if it fails
-                                    set claude_args "--add-dir \"$worktree_path\" --continue --permission-mode plan; or claude --add-dir \"$worktree_path\" --permission-mode plan"
-                                end
-                                tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude" "claude $claude_args"
-                            else
-                                # Fallback to shell
-                                tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude"
-                            end
-                        else
-                            # Create terminal window
-                            tmux new-window -t "$session_name:1" -c "$worktree_path" -n "terminal"
-                        end
-                    end
-                    # Attach to target window
-                    tmux attach-session -t "$session_name:${window_index}"
-                    continue
-                else
-                    # Create new session with both windows
-                    # Window 1: terminal (always created) - base-index 1 makes first window = 1
-                    tmux new-session -d -s "$session_name" -c "$worktree_path" -n "terminal"
-
-                    # Window 2: claude (if auto-claude is true)
-                    if test "$auto_claude" = "true"
+                # Check if inside wezterm and wezterm CLI is available
+                if test -n "$WEZTERM_PANE"; and command -v wezterm &> /dev/null
+                    if test "$target_window" = "claude"
+                        # Claude tab
                         if command -v claude &> /dev/null
-                            set claude_args "--add-dir \"$worktree_path\" --permission-mode plan"
                             if test "$is_claude_initialized" = "true"
                                 # Try with --continue first, fallback to fresh start if it fails
-                                set claude_args "--add-dir \"$worktree_path\" --continue --permission-mode plan; or claude --add-dir \"$worktree_path\" --permission-mode plan"
+                                wezterm cli spawn --cwd "$worktree_path" -- bash -c "claude --add-dir \"$worktree_path\" --continue --permission-mode plan || claude --add-dir \"$worktree_path\" --permission-mode plan"
+                            else
+                                wezterm cli spawn --cwd "$worktree_path" -- claude --add-dir "$worktree_path" --permission-mode plan
                             end
-                            tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude" "claude $claude_args"
                         else
-                            # Fallback: create window with shell
-                            tmux new-window -t "$session_name:2" -c "$worktree_path" -n "claude"
+                            # Fallback to shell if claude not available
+                            wezterm cli spawn --cwd "$worktree_path"
                         end
+                    else
+                        # Terminal tab
+                        wezterm cli spawn --cwd "$worktree_path"
                     end
-
-                    # Attach to target window
-                    tmux attach-session -t "$session_name:${window_index}"
                     continue
+                else
+                    # Not in wezterm - cd and optionally run claude
+                    cd $worktree_path
+
+                    if test "$target_window" = "claude"
+                        if command -v claude &> /dev/null
+                            echo ""
+                            set_color magenta; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; set_color normal
+                            set_color --bold cyan; echo "  🤖 Claude Session"; set_color normal
+                            set_color magenta; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; set_color normal
+                            set_color green; echo -n "  Branch:    "; set_color --bold normal; echo "$branch"
+                            set_color green; echo -n "  Path:      "; set_color normal; echo "$worktree_path"
+                            if test "$is_claude_initialized" = "true"
+                                set_color green; echo -n "  Status:    "; set_color yellow; echo "Resuming session..."; set_color normal
+                            else
+                                set_color green; echo -n "  Status:    "; set_color cyan; echo "Starting new session..."; set_color normal
+                            end
+                            set_color magenta; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; set_color normal
+                            echo ""
+                            if test "$is_claude_initialized" = "true"
+                                claude --add-dir "$worktree_path" --continue --permission-mode plan; or claude --add-dir "$worktree_path" --permission-mode plan
+                            else
+                                claude --add-dir "$worktree_path" --permission-mode plan
+                            end
+                        else
+                            set_color yellow; echo "⚠ Claude not found, switched to: $branch"; set_color normal
+                        end
+                    else
+                        echo ""
+                        set_color green; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; set_color normal
+                        set_color --bold cyan; echo "  📁 Terminal Session"; set_color normal
+                        set_color green; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; set_color normal
+                        set_color green; echo -n "  Branch:    "; set_color --bold normal; echo "$branch"
+                        set_color green; echo -n "  Path:      "; set_color normal; echo "$worktree_path"
+                        set_color green; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; set_color normal
+                        echo ""
+                    end
+                    return
                 end
             end
         else

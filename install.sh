@@ -51,19 +51,14 @@ check_prerequisites() {
     fi
     print_success "git found"
 
-    # Check for tmux
-    if ! command -v tmux &> /dev/null; then
-        print_error "tmux is not installed"
-        echo "Install tmux:"
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            echo "  brew install tmux"
-        else
-            echo "  sudo apt-get install tmux  (Ubuntu/Debian)"
-            echo "  sudo yum install tmux      (CentOS/RHEL)"
-        fi
-        exit 1
+    # Check for wezterm (recommended but not required)
+    if command -v wezterm &> /dev/null; then
+        print_success "wezterm found"
+    else
+        echo "Note: wezterm is recommended for full tab management features"
+        echo "Without wezterm, jean will use simple directory switching"
+        echo "Install wezterm: https://wezfurlong.org/wezterm/installation.html"
     fi
-    print_success "tmux found"
 }
 
 # Detect OS and architecture

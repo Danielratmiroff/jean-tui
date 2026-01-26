@@ -420,8 +420,6 @@ func (m Model) renderModal() string {
 		return m.renderBranchSelectModal()
 	case checkoutBranchModal:
 		return m.renderCheckoutBranchModal()
-	case sessionListModal:
-		return m.renderSessionListModal()
 	case renameModal:
 		return m.renderRenameModal()
 	case changeBaseBranchModal:
@@ -436,8 +434,6 @@ func (m Model) renderModal() string {
 		return m.renderAIPromptsModal()
 	case prStateSettingsModal:
 		return m.renderPRStateSettingsModal()
-	case tmuxConfigModal:
-		return m.renderTmuxConfigModal()
 	case themeSelectModal:
 		return m.renderThemeSelectModal()
 	case commitModal:
@@ -860,73 +856,6 @@ func min(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func (m Model) renderSessionListModal() string {
-	var b strings.Builder
-
-	b.WriteString(modalTitleStyle.Render("Active Tmux Sessions"))
-	b.WriteString("\n\n")
-
-	if len(m.sessions) == 0 {
-		b.WriteString(normalItemStyle.Render("No active sessions found"))
-		b.WriteString("\n\n")
-		b.WriteString(helpStyle.Render("Press Esc to close"))
-	} else {
-		// Show sessions
-		maxVisible := 10
-		start := m.sessionIndex - maxVisible/2
-		if start < 0 {
-			start = 0
-		}
-		end := start + maxVisible
-		if end > len(m.sessions) {
-			end = len(m.sessions)
-			start = end - maxVisible
-			if start < 0 {
-				start = 0
-			}
-		}
-
-		for i := start; i < end; i++ {
-			sess := m.sessions[i]
-			statusIcon := "○"
-			statusText := ""
-			if sess.Active {
-				statusIcon = "●"
-				statusText = " (attached)"
-			}
-
-			// Determine session type
-			sessionTypeIcon := "🤖"  // Claude session (default)
-			if strings.HasSuffix(sess.Name, "-terminal") {
-				sessionTypeIcon = "⌨️ " // Terminal session
-			}
-
-			var style lipgloss.Style
-			if i == m.sessionIndex {
-				style = selectedItemStyle
-			} else {
-				style = normalItemStyle
-			}
-
-			line := fmt.Sprintf("%s %s %s%s", statusIcon, sessionTypeIcon, sess.Branch, statusText)
-			b.WriteString(style.Render(line))
-			b.WriteString("\n")
-		}
-
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render(fmt.Sprintf("Showing %d-%d of %d sessions", start+1, end, len(m.sessions))))
-		b.WriteString("\n\n")
-
-		b.WriteString(helpStyle.Render("↑↓ navigate • Enter attach • d kill • Esc close"))
-	}
-
-	return lipgloss.Place(
-		m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		modalStyle.Render(b.String()),
-	)
 }
 
 func (m Model) renderRenameModal() string {
@@ -1561,20 +1490,6 @@ func (m Model) renderSettingsModal() string {
 			},
 		},
 		{
-			name:        "Tmux Config",
-			key:         "t",
-			description: "Add/remove jean tmux config to ~/.tmux.conf",
-			getCurrent: func() string {
-				if m.sessionManager != nil {
-					hasConfig, err := m.sessionManager.HasJeanTmuxConfig()
-					if err == nil && hasConfig {
-						return "Installed"
-					}
-				}
-				return "Not installed"
-			},
-		},
-		{
 			name:        "AI Integration",
 			key:         "a",
 			description: "Configure Claude CLI for AI-powered commit messages and branch names",
@@ -1900,120 +1815,6 @@ func (m Model) renderAIPromptsModal() string {
 	)
 }
 
-func (m Model) renderTmuxConfigModal() string {
-	var b strings.Builder
-
-	b.WriteString(modalTitleStyle.Render("Tmux Configuration"))
-	b.WriteString("\n\n")
-
-	// Check current status
-	hasConfig := false
-	if m.sessionManager != nil {
-		installed, err := m.sessionManager.HasJeanTmuxConfig()
-		if err == nil {
-			hasConfig = installed
-		}
-	}
-
-	if hasConfig {
-		b.WriteString(helpStyle.Render("jean tmux config is currently installed in ~/.tmux.conf"))
-		b.WriteString("\n\n")
-		b.WriteString(normalItemStyle.Render("Current features:"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Mouse support for scrolling and clickable links"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • 10,000 line scrollback buffer (enhanced history)"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • 256 color support with true color"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Shift+Left/Right arrows for window navigation"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Ctrl-D to detach from session (quick escape)"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Focus events for vim/neovim integration"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Improved status bar with repo:branch display"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Window numbering starts at 1 with auto-renumbering"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Better pane border colors"))
-		b.WriteString("\n\n")
-
-		// Buttons
-		updateBtn := "Update Config"
-		removeBtn := "Remove Config"
-		cancelBtn := "Cancel"
-
-		if m.modalFocused == 0 {
-			b.WriteString(selectedButtonStyle.Render(updateBtn))
-		} else {
-			b.WriteString(buttonStyle.Render(updateBtn))
-		}
-		b.WriteString(" ")
-		if m.modalFocused == 1 {
-			b.WriteString(selectedCancelButtonStyle.Render(removeBtn))
-		} else {
-			b.WriteString(cancelButtonStyle.Render(removeBtn))
-		}
-		b.WriteString(" ")
-		if m.modalFocused == 2 {
-			b.WriteString(selectedCancelButtonStyle.Render(cancelBtn))
-		} else {
-			b.WriteString(cancelButtonStyle.Render(cancelBtn))
-		}
-	} else {
-		b.WriteString(helpStyle.Render("jean has an opinionated tmux configuration that includes:"))
-		b.WriteString("\n\n")
-		b.WriteString(helpStyle.Render("  • Mouse support for scrolling and clickable links"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • 10,000 line scrollback buffer (enhanced history)"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • 256 color support with true color"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Shift+Left/Right arrows for window navigation"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Ctrl-D to detach from session (quick escape)"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Focus events for vim/neovim integration"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Improved status bar with repo:branch display"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Window numbering starts at 1 with auto-renumbering"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("  • Better pane border colors"))
-		b.WriteString("\n\n")
-		b.WriteString(normalItemStyle.Render("This will be appended to your ~/.tmux.conf in a marked section"))
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("(You can safely delete the section later, or update it from this menu)"))
-		b.WriteString("\n\n")
-
-		// Buttons
-		installBtn := "Install Config"
-		cancelBtn := "Cancel"
-
-		if m.modalFocused == 0 {
-			b.WriteString(selectedButtonStyle.Render(installBtn))
-		} else {
-			b.WriteString(buttonStyle.Render(installBtn))
-		}
-		b.WriteString(" ")
-		if m.modalFocused == 1 {
-			b.WriteString(selectedCancelButtonStyle.Render(cancelBtn))
-		} else {
-			b.WriteString(cancelButtonStyle.Render(cancelBtn))
-		}
-	}
-
-	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Render("Tab to switch • Enter to confirm • Esc to cancel"))
-
-	return lipgloss.Place(
-		m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		modalStyle.Render(b.String()),
-	)
-}
-
 func (m Model) renderHelperModal() string {
 	var b strings.Builder
 
@@ -2079,7 +1880,6 @@ func (m Model) renderHelperModal() string {
 			}{
 				{"s", "Open settings"},
 				{"e", "Select default editor"},
-				{"S", "View tmux sessions"},
 				{"h", "Show this help"},
 				{"q", "Quit application"},
 			},
@@ -2345,7 +2145,7 @@ func (m Model) renderOnboardingModal() string {
 	b.WriteString("\n\n")
 
 	// Brief introduction
-	b.WriteString(normalItemStyle.Render("jean is a TUI for managing Git worktrees with tmux + Claude integration."))
+	b.WriteString(normalItemStyle.Render("jean is a TUI for managing Git worktrees with wezterm + Claude integration."))
 	b.WriteString("\n\n")
 
 	// Explain shell integration
@@ -2356,52 +2156,25 @@ func (m Model) renderOnboardingModal() string {
 	b.WriteString(helpStyle.Render("  You can now switch worktrees seamlessly."))
 	b.WriteString("\n\n")
 
-	// Explain tmux config
-	b.WriteString(detailKeyStyle.Render("⚙  Tmux Configuration (Optional)"))
+	// Explain wezterm integration
+	b.WriteString(detailKeyStyle.Render("⚙  Wezterm Tab Support"))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("  We recommend installing our opinionated tmux config:"))
+	b.WriteString(helpStyle.Render("  When running inside wezterm:"))
 	b.WriteString("\n")
-	b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  • Mouse support for scrolling"))
+	b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  • Press 't' to open a new terminal tab in a worktree"))
 	b.WriteString("\n")
-	b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  • Ctrl-D to detach (familiar keybinding)"))
+	b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  • Press 'c' to open Claude CLI in a new tab"))
 	b.WriteString("\n")
-	b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  • 10,000 line scrollback buffer"))
-	b.WriteString("\n")
-	b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  • Clean status bar with repo:branch info"))
-	b.WriteString("\n")
-	b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  • Shift+arrow keys for window navigation"))
+	b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("  • Each tab starts in the correct worktree directory"))
 	b.WriteString("\n\n")
 
-	// Check if tmux config is already installed
-	hasTmuxConfig, _ := m.sessionManager.HasJeanTmuxConfig()
-	if hasTmuxConfig {
-		b.WriteString(helpStyle.Render("Note: Tmux config is already installed. You can update it or skip."))
-		b.WriteString("\n\n")
-	}
+	// Single button to continue
+	continueBtn := "Get Started"
 
-	// Buttons
-	installBtn := "Install Tmux Config"
-	skipBtn := "Skip for Now"
-
-	if hasTmuxConfig {
-		installBtn = "Update Tmux Config"
-	}
-
-	if m.onboardingFocused == 0 {
-		b.WriteString(selectedButtonStyle.Render(installBtn))
-	} else {
-		b.WriteString(buttonStyle.Render(installBtn))
-	}
-	b.WriteString("  ")
-
-	if m.onboardingFocused == 1 {
-		b.WriteString(selectedButtonStyle.Render(skipBtn))
-	} else {
-		b.WriteString(buttonStyle.Render(skipBtn))
-	}
+	b.WriteString(selectedButtonStyle.Render(continueBtn))
 
 	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Render("Tab/←→ navigate • Enter confirm • Esc skip"))
+	b.WriteString(helpStyle.Render("Press Enter to continue"))
 
 	// Center the modal
 	content := modalStyle.Width(60).Render(b.String())

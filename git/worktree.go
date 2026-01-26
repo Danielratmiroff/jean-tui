@@ -3,6 +3,7 @@ package git
 import (
 	"crypto/rand"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 	"os/exec"
@@ -25,7 +26,7 @@ type Worktree struct {
 	HasUncommitted    bool             // Whether the worktree has uncommitted changes
 	PRs               interface{}      // []config.PRInfo - Pull requests for this branch (loaded from config)
 	LastModified      time.Time        // Last modification time of the worktree directory
-	ClaudeSessionName string           // Sanitized tmux session name for Claude (e.g., "jean-feature-add-status")
+	ClaudeSessionName string           // Sanitized session name for Claude (e.g., "jean-feature-add-status")
 	RecentCommits     []string         // Last 5 commit titles for this worktree
 }
 
@@ -315,6 +316,19 @@ func (m *Manager) Create(path, branch string, newBranch bool, baseBranch string)
 		return fmt.Errorf("failed to create worktree: %s", string(output))
 	}
 
+	// Copy local files from base repo to worktree (e.g., .claude/settings.local.json)
+	repoRoot, err := m.GetRepoRoot()
+	if err == nil {
+		scriptConfig, err := config.LoadScripts(repoRoot)
+		if err == nil {
+			copyPaths := scriptConfig.GetCopyPaths()
+			if err := m.copyLocalFiles(repoRoot, workspacePath, copyPaths); err != nil {
+				// Log warning but don't fail - worktree is still usable
+				fmt.Fprintf(os.Stderr, "Warning: failed to copy local files: %v\n", err)
+			}
+		}
+	}
+
 	// Execute setup script if configured (non-blocking - errors are returned but don't prevent worktree usage)
 	if err := m.executeSetupScript(workspacePath); err != nil {
 		return fmt.Errorf("setup script failed: %w", err)
@@ -360,6 +374,99 @@ func (m *Manager) executeSetupScript(workspacePath string) error {
 	}
 
 	return nil
+}
+
+// copyLocalFiles copies gitignored files/directories from base repo to worktree
+// This enables copying files like .claude/settings.local.json that are not tracked by git
+func (m *Manager) copyLocalFiles(repoRoot, workspacePath string, paths []string) error {
+	for _, relPath := range paths {
+		srcPath := filepath.Join(repoRoot, relPath)
+		dstPath := filepath.Join(workspacePath, relPath)
+
+		// Check if source exists
+		srcInfo, err := os.Stat(srcPath)
+		if os.IsNotExist(err) {
+			// Source doesn't exist, skip silently
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("failed to stat source %s: %w", relPath, err)
+		}
+
+		if srcInfo.IsDir() {
+			// Copy directory recursively
+			if err := m.copyDir(srcPath, dstPath); err != nil {
+				return fmt.Errorf("failed to copy directory %s: %w", relPath, err)
+			}
+		} else {
+			// Copy single file
+			if err := m.copyFile(srcPath, dstPath); err != nil {
+				return fmt.Errorf("failed to copy file %s: %w", relPath, err)
+			}
+		}
+	}
+	return nil
+}
+
+// copyDir recursively copies a directory from src to dst
+func (m *Manager) copyDir(src, dst string) error {
+	// Create destination directory
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := m.copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := m.copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// copyFile copies a single file from src to dst, preserving permissions
+func (m *Manager) copyFile(src, dst string) error {
+	// Create parent directories if needed
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
 }
 
 // Remove removes a worktree and automatically deletes the associated branch
@@ -443,6 +550,19 @@ func (m *Manager) EnsureWorktreeExists(path, branch string) error {
 	cmd := exec.Command("git", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to recreate worktree: %s", string(output))
+	}
+
+	// Copy local files from base repo to worktree (e.g., .claude/settings.local.json)
+	repoRoot, err := m.GetRepoRoot()
+	if err == nil {
+		scriptConfig, err := config.LoadScripts(repoRoot)
+		if err == nil {
+			copyPaths := scriptConfig.GetCopyPaths()
+			if err := m.copyLocalFiles(repoRoot, path, copyPaths); err != nil {
+				// Log warning but don't fail - worktree is still usable
+				fmt.Fprintf(os.Stderr, "Warning: failed to copy local files: %v\n", err)
+			}
+		}
 	}
 
 	// Execute setup script if configured (non-blocking)

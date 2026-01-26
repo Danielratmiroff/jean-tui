@@ -299,7 +299,7 @@ func TestListSelectionModalInput_CustomKey(t *testing.T) {
 // TestListSelectionModalInput_Escape tests Esc closes modal
 func TestListSelectionModalInput_Escape(t *testing.T) {
 	m := setupTestModel()
-	m.modal = sessionListModal
+	m.modal = editorSelectModal
 
 	config := listSelectionConfig{
 		getCurrentIndex: func() int { return m.sessionIndex },

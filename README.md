@@ -19,7 +19,7 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and designed
 - **Git Worktree Management** - Create, switch, and delete worktrees with single keystrokes
 - **AI-Powered Workflow** - Auto-generate commit messages, branch names, and PR content (11+ AI models)
 - **GitHub PR Automation** - Create draft PRs, browse PRs, merge with strategy selection
-- **Tmux Sessions** - Persistent Claude CLI and terminal sessions per worktree
+- **Wezterm Tabs** - Integrated Claude CLI and terminal tabs per worktree
 - **5 Themes** - Matrix, Coolify, Dracula, Nord, Solarized with dynamic switching
 - **Multi-Editor Support** - Open worktrees in VS Code, Cursor, Neovim, Vim, Sublime, Atom, or Zed
 - **Branch Management** - Rename branches, checkout, change base branch, pull from base
@@ -53,7 +53,7 @@ jean init
 ## Prerequisites
 
 - **Git**: For worktree operations
-- **tmux**: For session management (`brew install tmux` on macOS, `sudo apt install tmux` on Linux)
+- **Wezterm**: Recommended for tab integration (optional - works without it)
 - **GitHub CLI**: For PR operations (`brew install gh` on macOS, `sudo apt install gh` on Linux)
 
 ## Quick Start
@@ -115,7 +115,6 @@ jean -path /path/to/other/repo
 |-----|--------|
 | `e` | Select editor |
 | `s` | Settings menu |
-| `S` | Manage tmux sessions |
 | `h` | Help modal |
 
 ## Configuration
@@ -127,16 +126,6 @@ Settings stored in `~/.config/jean/config.json` per repository:
 - **Theme** - Visual theme (press `s` → Theme to change)
 - **AI Settings** - OpenRouter API key, model selection, feature toggles
 - **Debug logs** - Enable logging to `/tmp/jean-debug.log`
-
-### Tmux Configuration
-
-Press `s` → Tmux Config to install an opinionated tmux configuration with:
-- Mouse support & scrolling
-- 10k line scrollback buffer
-- 256 color + true color support
-- Shift+Left/Right to switch windows
-- Ctrl+D to detach
-- Better pane borders and status bar
 
 ### Setup Scripts
 
@@ -174,13 +163,12 @@ Press `p` to:
 3. Rename random branches with AI
 4. Push to remote
 
-### Session Management
+### Tab Management
 
-Both Claude and terminal sessions can coexist for the same worktree:
-- `Enter` creates Claude session (`jean-<branch>`)
-- `t` creates terminal session (`jean-<branch>-terminal`)
-- Detach anytime with `Ctrl+B D`
-- View all sessions with `S`
+When running inside Wezterm, jean opens new tabs for each worktree:
+- `Enter` or `c` opens Claude CLI in a new tab
+- `t` opens a terminal in a new tab
+- Both tabs start in the worktree directory
 
 ## Themes
 
@@ -212,7 +200,7 @@ go run main.go -path /path/to/test/repo
 - `main.go` - CLI entry point
 - `tui/` - Bubble Tea TUI (model, update, view, styles)
 - `git/` - Git worktree operations
-- `session/` - Tmux session management
+- `session/` - Session name utilities
 - `config/` - Configuration management
 - `github/` - GitHub PR operations
 - `openrouter/` - AI integration

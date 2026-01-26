@@ -8,7 +8,8 @@ import (
 
 // ScriptConfig represents the jean.json configuration file
 type ScriptConfig struct {
-	Scripts map[string]string `json:"scripts"`
+	Scripts   map[string]string `json:"scripts"`
+	CopyPaths []string          `json:"copyPaths"` // Paths to copy from base repo to worktrees
 }
 
 // LoadScripts loads the jean.json file from a repository path
@@ -66,4 +67,14 @@ func (s *ScriptConfig) HasScripts() bool {
 		return false
 	}
 	return len(s.Scripts) > 0
+}
+
+// GetCopyPaths returns the paths to copy from base repo to worktrees
+// Defaults to [".claude"] if not configured (for Claude Code settings)
+func (s *ScriptConfig) GetCopyPaths() []string {
+	if s == nil || len(s.CopyPaths) == 0 {
+		// Default: copy .claude directory (for Claude Code settings)
+		return []string{".claude"}
+	}
+	return s.CopyPaths
 }
