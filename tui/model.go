@@ -1926,7 +1926,12 @@ func (m *Model) showSuccessNotification(message string, autoClearAfter time.Dura
 }
 
 // showErrorNotification displays an error notification with auto-clear (5 seconds)
+// Truncates long error messages to fit in notification popup
 func (m *Model) showErrorNotification(message string, autoClearAfter time.Duration) tea.Cmd {
+	const maxLen = 150
+	if len(message) > maxLen {
+		message = message[:maxLen-3] + "..."
+	}
 	return m.showNotification(message, NotificationError, &autoClearAfter)
 }
 

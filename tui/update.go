@@ -247,7 +247,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmd, m.loadWorktrees())
 			} else {
 				// Git worktree creation failed - show error
-				cmd = m.showErrorNotification("Failed to create worktree", 4*time.Second)
+				cmd = m.showErrorNotification("Failed to create worktree: "+msg.err.Error(), 5*time.Second)
 				return m, cmd
 			}
 		} else {
@@ -339,7 +339,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmd, m.loadWorktrees())
 			} else {
 				// Git worktree creation failed - show error
-				cmd = m.showErrorNotification("Failed to create worktree", 4*time.Second)
+				cmd = m.showErrorNotification("Failed to create worktree: "+msg.err.Error(), 5*time.Second)
 				return m, cmd
 			}
 		} else {
@@ -389,7 +389,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case worktreeDeletedMsg:
 		if msg.err != nil {
-			cmd = m.showErrorNotification("Failed to delete worktree", 4*time.Second)
+			cmd = m.showErrorNotification("Failed to delete worktree: "+msg.err.Error(), 5*time.Second)
 			return m, cmd
 		} else {
 			cmd = m.showSuccessNotification("Worktree and branch deleted successfully", 3*time.Second)
@@ -409,7 +409,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case branchRenamedMsg:
 		if msg.err != nil {
-			cmd = m.showErrorNotification("Failed to rename branch", 4*time.Second)
+			cmd = m.showErrorNotification("Failed to rename branch: "+msg.err.Error(), 5*time.Second)
 			return m, cmd
 		} else {
 			// Branch renamed successfully (directory path unchanged to preserve sessions)
@@ -429,7 +429,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case branchCheckedOutMsg:
 		if msg.err != nil {
-			cmd = m.showErrorNotification("Failed to checkout branch", 4*time.Second)
+			cmd = m.showErrorNotification("Failed to checkout branch: "+msg.err.Error(), 5*time.Second)
 			return m, cmd
 		} else {
 			cmd = m.showSuccessNotification("Branch checked out successfully", 3*time.Second)
