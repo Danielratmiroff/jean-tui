@@ -478,6 +478,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessions = msg.sessions
 		return m, nil
 
+	case stagingFilesLoadedMsg:
+		if msg.err != nil {
+			cmd = m.showErrorNotification("Failed to load staging status: "+msg.err.Error(), 4*time.Second)
+			return m, cmd
+		}
+		m.stagingFiles = msg.files
+		// Keep index in bounds
+		if m.stagingIndex >= len(m.stagingFiles) {
+			m.stagingIndex = len(m.stagingFiles) - 1
+		}
+		if m.stagingIndex < 0 {
+			m.stagingIndex = 0
+		}
+		return m, nil
+
+	case stagingFileToggledMsg:
+		if msg.err != nil {
+			cmd = m.showErrorNotification("Failed to toggle file: "+msg.err.Error(), 4*time.Second)
+			return m, cmd
+		}
+		// Refresh the staging files list
+		return m, m.loadStagingFiles()
+
 	case editorOpenedMsg:
 		if msg.err != nil {
 			cmd = m.showErrorNotification("Failed to open editor: " + msg.err.Error(), 4*time.Second)
@@ -1849,6 +1872,15 @@ func (m Model) handleMainInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Open help modal
 		m.modal = helperModal
 		return m, nil
+
+	case "g":
+		// Open staging modal
+		if wt := m.selectedWorktree(); wt != nil {
+			m.modal = stagingModal
+			m.stagingIndex = 0
+			m.stagingFiles = nil
+			return m, m.loadStagingFiles()
+		}
 	}
 
 	return m, nil
@@ -1924,6 +1956,9 @@ func (m Model) handleModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case helperModal:
 		return m.handleHelperModalInput(msg)
+
+	case stagingModal:
+		return m.handleStagingModalInput(msg)
 	}
 
 	return m, cmd
@@ -3559,6 +3594,60 @@ func (m Model) handleHelperModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Close helper modal with Esc, h, or q
 		m.modal = noModal
 		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m Model) handleStagingModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		// Close staging modal
+		m.modal = noModal
+		m.stagingFiles = nil
+		m.stagingIndex = 0
+		// Refresh worktrees to update uncommitted changes indicator
+		return m, m.loadWorktrees()
+
+	case "up", "k":
+		// Navigate up
+		if m.stagingIndex > 0 {
+			m.stagingIndex--
+		}
+		return m, nil
+
+	case "down", "j":
+		// Navigate down
+		if m.stagingIndex < len(m.stagingFiles)-1 {
+			m.stagingIndex++
+		}
+		return m, nil
+
+	case "enter", " ":
+		// Toggle staging status of selected file
+		if m.stagingIndex >= 0 && m.stagingIndex < len(m.stagingFiles) {
+			file := m.stagingFiles[m.stagingIndex]
+			if file.IsStaged {
+				// Unstage the file
+				return m, m.unstageFile(file.Path)
+			} else {
+				// Stage the file
+				return m, m.stageFile(file.Path)
+			}
+		}
+		return m, nil
+
+	case "a":
+		// Stage all files
+		return m, m.stageAllFiles()
+
+	case "u":
+		// Unstage all files
+		return m, m.unstageAllFiles()
+
+	case "r":
+		// Refresh file list
+		return m, m.loadStagingFiles()
 	}
 
 	return m, nil

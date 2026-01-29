@@ -56,6 +56,7 @@ const (
 	prStateSettingsModal
 	onboardingModal
 	gitInitModal
+	stagingModal
 )
 
 // NotificationType defines the type of notification
@@ -241,6 +242,10 @@ type Model struct {
 
 	// Git init modal state
 	gitInitError string // Error message for git initialization
+
+	// Staging modal state
+	stagingFiles []git.StagingFile // Files in the staging area
+	stagingIndex int               // Currently selected file index
 }
 
 // NewModel creates a new TUI model
@@ -673,6 +678,14 @@ type (
 		err error
 	}
 
+	stagingFilesLoadedMsg struct {
+		files []git.StagingFile
+		err   error
+	}
+
+	stagingFileToggledMsg struct {
+		err error
+	}
 )
 
 // Commands
@@ -2093,6 +2106,80 @@ func (m Model) checkOnboardingStatus() tea.Cmd {
 	return func() tea.Msg {
 		isOnboarded := m.configManager.IsOnboarded()
 		return onboardingStatusMsg{needsOnboarding: !isOnboarded}
+	}
+}
+
+// loadStagingFiles loads the staging status for the selected worktree
+func (m Model) loadStagingFiles() tea.Cmd {
+	return func() tea.Msg {
+		wt := m.selectedWorktree()
+		if wt == nil {
+			return stagingFilesLoadedMsg{err: fmt.Errorf("no worktree selected")}
+		}
+		files, err := m.gitManager.GetStagingStatus(wt.Path)
+		if err != nil {
+			return stagingFilesLoadedMsg{err: err}
+		}
+
+		// Sort files so staged files come first (matching display order in renderStagingModal)
+		sort.Slice(files, func(i, j int) bool {
+			// Staged files (IsStaged=true) should come before unstaged (IsStaged=false)
+			if files[i].IsStaged != files[j].IsStaged {
+				return files[i].IsStaged
+			}
+			// Within same category, sort alphabetically by path
+			return files[i].Path < files[j].Path
+		})
+
+		return stagingFilesLoadedMsg{files: files}
+	}
+}
+
+// stageFile stages a single file
+func (m Model) stageFile(filePath string) tea.Cmd {
+	return func() tea.Msg {
+		wt := m.selectedWorktree()
+		if wt == nil {
+			return stagingFileToggledMsg{err: fmt.Errorf("no worktree selected")}
+		}
+		err := m.gitManager.StageFile(wt.Path, filePath)
+		return stagingFileToggledMsg{err: err}
+	}
+}
+
+// unstageFile removes a file from the staging area
+func (m Model) unstageFile(filePath string) tea.Cmd {
+	return func() tea.Msg {
+		wt := m.selectedWorktree()
+		if wt == nil {
+			return stagingFileToggledMsg{err: fmt.Errorf("no worktree selected")}
+		}
+		err := m.gitManager.UnstageFile(wt.Path, filePath)
+		return stagingFileToggledMsg{err: err}
+	}
+}
+
+// stageAllFiles stages all files in the worktree
+func (m Model) stageAllFiles() tea.Cmd {
+	return func() tea.Msg {
+		wt := m.selectedWorktree()
+		if wt == nil {
+			return stagingFileToggledMsg{err: fmt.Errorf("no worktree selected")}
+		}
+		err := m.gitManager.StageAllFiles(wt.Path)
+		return stagingFileToggledMsg{err: err}
+	}
+}
+
+// unstageAllFiles removes all files from the staging area
+func (m Model) unstageAllFiles() tea.Cmd {
+	return func() tea.Msg {
+		wt := m.selectedWorktree()
+		if wt == nil {
+			return stagingFileToggledMsg{err: fmt.Errorf("no worktree selected")}
+		}
+		err := m.gitManager.UnstageAllFiles(wt.Path)
+		return stagingFileToggledMsg{err: err}
 	}
 }
 

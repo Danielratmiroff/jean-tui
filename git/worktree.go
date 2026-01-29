@@ -1408,3 +1408,97 @@ func (m *Manager) GetRecentCommitTitles(worktreePath string, count int) ([]strin
 	}
 	return titles, nil
 }
+
+// StagingFile represents a file in the git staging area
+type StagingFile struct {
+	Path          string
+	StagingStatus string // First column from porcelain (index status)
+	WorkingStatus string // Second column from porcelain (working tree status)
+	IsStaged      bool   // Whether the file has staged changes
+}
+
+// GetStagingStatus returns the current staging status for all files in the worktree
+// Parses output from `git status --porcelain`
+func (m *Manager) GetStagingStatus(worktreePath string) ([]StagingFile, error) {
+	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get staging status: %w", err)
+	}
+
+	var files []StagingFile
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if len(line) < 3 {
+			continue
+		}
+
+		// Git status --porcelain format:
+		// XY PATH
+		// Where X is the status in the index (staging area)
+		// and Y is the status in the working tree
+		stagingStatus := string(line[0])
+		workingStatus := string(line[1])
+		path := strings.TrimSpace(line[3:])
+
+		// Handle renamed files (format: "R  old -> new")
+		if strings.Contains(path, " -> ") {
+			parts := strings.Split(path, " -> ")
+			if len(parts) == 2 {
+				path = parts[1] // Use the new path
+			}
+		}
+
+		// A file is staged if the staging status is not ' ' or '?'
+		isStaged := stagingStatus != " " && stagingStatus != "?"
+
+		files = append(files, StagingFile{
+			Path:          path,
+			StagingStatus: stagingStatus,
+			WorkingStatus: workingStatus,
+			IsStaged:      isStaged,
+		})
+	}
+
+	return files, nil
+}
+
+// StageFile stages a file for commit
+func (m *Manager) StageFile(worktreePath, filePath string) error {
+	cmd := exec.Command("git", "-C", worktreePath, "add", filePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to stage file: %s", string(output))
+	}
+	return nil
+}
+
+// UnstageFile removes a file from the staging area
+func (m *Manager) UnstageFile(worktreePath, filePath string) error {
+	cmd := exec.Command("git", "-C", worktreePath, "reset", "HEAD", filePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to unstage file: %s", string(output))
+	}
+	return nil
+}
+
+// StageAllFiles stages all files in the worktree
+func (m *Manager) StageAllFiles(worktreePath string) error {
+	cmd := exec.Command("git", "-C", worktreePath, "add", "-A")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to stage all files: %s", string(output))
+	}
+	return nil
+}
+
+// UnstageAllFiles removes all files from the staging area
+func (m *Manager) UnstageAllFiles(worktreePath string) error {
+	cmd := exec.Command("git", "-C", worktreePath, "reset", "HEAD")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to unstage all files: %s", string(output))
+	}
+	return nil
+}

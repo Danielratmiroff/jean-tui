@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/coollabsio/jean-tui/config"
+	"github.com/coollabsio/jean-tui/git"
 	"github.com/coollabsio/jean-tui/internal/version"
 )
 
@@ -374,6 +375,7 @@ func (m Model) renderMinimalHelpBar() string {
 		"n/a/N new/existing/PR",
 		"enter/t cli/terminal",
 		"c commit",
+		"g staging",
 		"p push",
 		"P create PR",
 		"L local merge",
@@ -454,6 +456,8 @@ func (m Model) renderModal() string {
 		return m.renderOnboardingModal()
 	case gitInitModal:
 		return m.renderGitInitModal()
+	case stagingModal:
+		return m.renderStagingModal()
 	}
 	return ""
 }
@@ -2213,4 +2217,160 @@ func (m Model) renderGitInitModal() string {
 		lipgloss.Center, lipgloss.Center,
 		content,
 	)
+}
+
+func (m Model) renderStagingModal() string {
+	var b strings.Builder
+
+	b.WriteString(modalTitleStyle.Render("Staging Area"))
+	b.WriteString("\n\n")
+
+	// Show branch info
+	if wt := m.selectedWorktree(); wt != nil {
+		b.WriteString(detailKeyStyle.Render("Branch: "))
+		b.WriteString(detailValueStyle.Render(wt.Branch))
+		b.WriteString("\n\n")
+	}
+
+	// No files to show
+	if len(m.stagingFiles) == 0 {
+		b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render("No changes detected"))
+		b.WriteString("\n\n")
+		b.WriteString(helpStyle.Render("Press Esc to close"))
+		content := modalStyle.Width(70).Render(b.String())
+		return lipgloss.Place(
+			m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			content,
+		)
+	}
+
+	// Separate staged and unstaged files
+	var stagedFiles []git.StagingFile
+	var unstagedFiles []git.StagingFile
+
+	for _, file := range m.stagingFiles {
+		if file.IsStaged {
+			stagedFiles = append(stagedFiles, file)
+		} else {
+			unstagedFiles = append(unstagedFiles, file)
+		}
+	}
+
+	// Calculate global index for file navigation
+	// Staged files come first, then unstaged
+	globalIndex := 0
+
+	// Staged Changes section
+	b.WriteString(detailKeyStyle.Render("Staged Changes:"))
+	if len(stagedFiles) == 0 {
+		b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render(" (none)"))
+	}
+	b.WriteString("\n")
+
+	for i, file := range stagedFiles {
+		isSelected := globalIndex == m.stagingIndex
+		globalIndex++
+
+		// Status indicator
+		statusIcon := m.getStagingStatusIcon(file.StagingStatus)
+
+		line := fmt.Sprintf("  %s %s", statusIcon, file.Path)
+		if isSelected {
+			b.WriteString(selectedItemStyle.Render("> " + line[2:]))
+		} else {
+			b.WriteString(normalItemStyle.Copy().Foreground(successColor).Render(line))
+		}
+		b.WriteString("\n")
+
+		// Limit displayed files to avoid overflow
+		if i >= 9 && len(stagedFiles) > 10 {
+			remaining := len(stagedFiles) - 10
+			b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render(fmt.Sprintf("    ... and %d more staged files", remaining)))
+			b.WriteString("\n")
+			globalIndex += remaining
+			break
+		}
+	}
+
+	b.WriteString("\n")
+
+	// Unstaged Changes section
+	b.WriteString(detailKeyStyle.Render("Unstaged Changes:"))
+	if len(unstagedFiles) == 0 {
+		b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render(" (none)"))
+	}
+	b.WriteString("\n")
+
+	for i, file := range unstagedFiles {
+		isSelected := globalIndex == m.stagingIndex
+		globalIndex++
+
+		// Status indicator
+		statusIcon := m.getStagingStatusIcon(file.WorkingStatus)
+		// Special case for untracked files
+		if file.StagingStatus == "?" {
+			statusIcon = "[?]"
+		}
+
+		line := fmt.Sprintf("  %s %s", statusIcon, file.Path)
+		if isSelected {
+			b.WriteString(selectedItemStyle.Render("> " + line[2:]))
+		} else {
+			b.WriteString(normalItemStyle.Copy().Foreground(warningColor).Render(line))
+		}
+		b.WriteString("\n")
+
+		// Limit displayed files to avoid overflow
+		if i >= 9 && len(unstagedFiles) > 10 {
+			remaining := len(unstagedFiles) - 10
+			b.WriteString(normalItemStyle.Copy().Foreground(mutedColor).Render(fmt.Sprintf("    ... and %d more unstaged files", remaining)))
+			b.WriteString("\n")
+			break
+		}
+	}
+
+	b.WriteString("\n")
+
+	// Help text
+	b.WriteString(helpStyle.Render("↑/↓/j/k navigate • Enter/Space toggle • a stage all • u unstage all • r refresh • Esc close"))
+
+	// Center the modal
+	modalWidth := 80
+	if m.width > 100 {
+		modalWidth = m.width - 20
+		if modalWidth > 120 {
+			modalWidth = 120
+		}
+	}
+	content := modalStyle.Width(modalWidth).Render(b.String())
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		content,
+	)
+}
+
+// getStagingStatusIcon returns a display icon for a git status character
+func (m Model) getStagingStatusIcon(status string) string {
+	switch status {
+	case "M":
+		return "[M]"
+	case "A":
+		return "[A]"
+	case "D":
+		return "[D]"
+	case "R":
+		return "[R]"
+	case "C":
+		return "[C]"
+	case "U":
+		return "[U]"
+	case "?":
+		return "[?]"
+	case " ":
+		return "[ ]"
+	default:
+		return "[" + status + "]"
+	}
 }
