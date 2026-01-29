@@ -187,7 +187,8 @@ type Model struct {
 	lastCommitMessage   string // Last commit message created (used as PR title)
 
 	// Auto-commit with AI state
-	autoCommitWithAI    bool   // Flag to track if we're auto-committing with AI (without opening modal)
+	autoCommitWithAI         bool // Flag to track if we're auto-committing with AI (without opening modal)
+	commitFromStagingModal   bool // Track if committing from staging modal to refresh files
 
 	// PR content modal AI generation state
 	generatingPRContent bool // Whether we're currently generating PR content

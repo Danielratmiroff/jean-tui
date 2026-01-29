@@ -2333,7 +2333,7 @@ func (m Model) renderStagingModal() string {
 	b.WriteString("\n")
 
 	// Help text
-	b.WriteString(helpStyle.Render("↑/↓/j/k navigate • Enter/Space toggle • a stage all • u unstage all • r refresh • Esc close"))
+	b.WriteString(helpStyle.Render("↑/↓/j/k navigate • Enter/Space toggle • a stage all • u unstage all • c commit • r refresh • Esc close"))
 
 	// Center the modal
 	modalWidth := 80

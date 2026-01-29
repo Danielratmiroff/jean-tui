@@ -801,6 +801,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Check if we committed from staging modal - refresh staging files
+			if m.commitFromStagingModal {
+				m.commitFromStagingModal = false
+				m.debugLog("Triggering worktree and staging files refresh after commit from staging modal")
+				return m, tea.Batch(cmd, m.loadWorktrees(), m.loadStagingFiles())
+			}
+
 			// Normal commit (not before PR)
 			m.debugLog("Triggering worktree refresh after commit")
 			return m, tea.Batch(
@@ -3648,6 +3655,46 @@ func (m Model) handleStagingModalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		// Refresh file list
 		return m, m.loadStagingFiles()
+
+	case "c":
+		// Commit changes (same as main panel)
+		if wt := m.selectedWorktree(); wt != nil {
+			// Check for uncommitted changes
+			hasUncommitted, err := m.gitManager.HasUncommittedChanges(wt.Path)
+			if err != nil {
+				return m, m.showErrorNotification("Failed to check for uncommitted changes: "+err.Error(), 3*time.Second)
+			}
+			if !hasUncommitted {
+				return m, m.showInfoNotification("Nothing to commit - no uncommitted changes")
+			}
+
+			// Check if AI commit generation is enabled
+			aiEnabled := m.configManager.GetAICommitEnabled()
+			apiKey := m.configManager.GetAnthropicAPIKey()
+
+			if aiEnabled && apiKey != "" {
+				// Auto-generate and auto-commit with AI
+				m.generatingCommit = true
+				m.spinnerFrame = 0
+				m.autoCommitWithAI = true
+				m.commitFromStagingModal = true // Track we're from staging modal
+				notifyCmd := m.showInfoNotification("🤖 Generating commit message...")
+				return m, tea.Batch(
+					notifyCmd,
+					m.animateSpinner(),
+					m.generateCommitMessageWithAI(wt.Path),
+				)
+			} else {
+				// Manual commit mode - close staging modal, open commit modal
+				m.modal = commitModal
+				m.modalFocused = 0
+				m.commitSubjectInput.SetValue("")
+				m.commitSubjectInput.Focus()
+				m.commitModalStatus = ""
+				return m, nil
+			}
+		}
+		return m, nil
 	}
 
 	return m, nil
