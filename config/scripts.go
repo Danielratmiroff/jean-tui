@@ -70,11 +70,11 @@ func (s *ScriptConfig) HasScripts() bool {
 }
 
 // GetCopyPaths returns the paths to copy from base repo to worktrees
-// Defaults to [".claude"] if not configured (for Claude Code settings)
+// Defaults to [".claude", ".husky"] if not configured
 func (s *ScriptConfig) GetCopyPaths() []string {
 	if s == nil || len(s.CopyPaths) == 0 {
-		// Default: copy .claude directory (for Claude Code settings)
-		return []string{".claude"}
+		// Default: copy .claude directory (for Claude Code settings) and .husky (for git hooks)
+		return []string{".claude", ".husky"}
 	}
 	return s.CopyPaths
 }
